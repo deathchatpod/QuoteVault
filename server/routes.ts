@@ -78,6 +78,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/queries/:id/quotes - Get all quotes for a specific query
+  app.get("/api/queries/:id/quotes", async (req, res) => {
+    try {
+      const quotes = await storage.getQuotesByQueryId(req.params.id);
+      res.json(quotes);
+    } catch (error: any) {
+      console.error("Get quotes by query error:", error);
+      res.status(500).json({ error: "Failed to fetch quotes for query" });
+    }
+  });
+
   // POST /api/quotes/verify - Verify all unverified quotes
   app.post("/api/quotes/verify", async (req, res) => {
     try {
@@ -405,13 +416,15 @@ async function processSearch(
       
       if (!duplicate) {
         const created = await storage.createQuote(popQuote);
+        await storage.linkQuoteToQuery(created.id, queryId);
         console.log(`[Search] Created pop culture quote: ${created.id} - "${created.quote.substring(0, 50)}..." (type: ${created.type}, sources: ${created.sources})`);
         quotesFound++;
         if (created.verified) {
           quotesVerified++;
         }
       } else {
-        console.log(`[Search] Skipping duplicate pop culture quote: "${popQuote.quote.substring(0, 50)}..."`);
+        await storage.linkQuoteToQuery(duplicate.id, queryId);
+        console.log(`[Search] Found duplicate pop culture quote: "${popQuote.quote.substring(0, 50)}..."`);
       }
     }
 
@@ -452,6 +465,7 @@ async function processSearch(
             reference: aiQuote.reference,
             sources: ["ai-extraction"],
           });
+          await storage.linkQuoteToQuery(duplicate.id, queryId);
         } else {
           // Create new quote
           const newQuote = await storage.createQuote({
@@ -467,6 +481,7 @@ async function processSearch(
             sources: ["ai-extraction"],
           });
 
+          await storage.linkQuoteToQuery(newQuote.id, queryId);
           quotesToVerify.push(newQuote);
           quotesFound++;
         }

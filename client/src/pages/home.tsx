@@ -46,6 +46,11 @@ export default function Home() {
     queryKey: ["/api/queries"],
   });
 
+  const { data: queryQuotes } = useQuery<Quote[]>({
+    queryKey: selectedQueryFilter ? [`/api/queries/${selectedQueryFilter}/quotes`] : ["/api/queries/null/quotes"],
+    enabled: !!selectedQueryFilter,
+  });
+
   const { data: currentQuery } = useQuery<SearchQuery>({
     queryKey: currentQueryId ? [`/api/queries/${currentQueryId}`] : ["/api/queries/null"],
     enabled: !!currentQueryId,
@@ -62,6 +67,7 @@ export default function Home() {
     },
     onSuccess: (data) => {
       setCurrentQueryId(data.queryId);
+      queryClient.invalidateQueries({ queryKey: ["/api/queries"] });
       toast({
         title: "Search started",
         description: "Processing your quote research request...",
@@ -120,13 +126,14 @@ export default function Home() {
   const isProcessing = (currentQueryId && !currentQuery) || currentQuery?.status === "processing" || currentQuery?.status === "searching_apis" || currentQuery?.status === "web_scraping" || currentQuery?.status === "verifying";
   const hasQuotes = quotes && quotes.length > 0;
   
-  const filteredQuotes = selectedQueryFilter 
-    ? quotes?.filter(q => q.sources?.some(s => s.includes(selectedQueryFilter))) || []
+  const filteredQuotes = selectedQueryFilter && queryQuotes
+    ? queryQuotes
     : quotes || [];
 
   useEffect(() => {
     if (currentQuery?.status === "completed") {
       queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/queries"] });
       setTimeout(() => {
         resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 500);
@@ -158,29 +165,20 @@ export default function Home() {
       let icon = "";
 
       if (currentQuery.status === "processing" || currentQuery.status === "searching_apis") {
-        title = "Searching for quotes...";
+        title = "🔍 Searching for quotes...";
         description = "Checking multiple quote sources";
-        icon = "search";
       } else if (currentQuery.status === "web_scraping") {
-        title = "Web scraping in progress...";
+        title = "🌐 Web scraping in progress...";
         description = "Gathering quotes from Wikiquote and other sources";
-        icon = "travel_explore";
       } else if (currentQuery.status === "verifying") {
-        title = "Verifying quotes...";
+        title = "✓ Verifying quotes...";
         description = "Using AI to verify accuracy and attribution";
-        icon = "verified";
       } else if (currentQuery.status === "completed") {
-        title = "Search completed!";
+        title = "✅ Search completed!";
         description = `Found ${currentQuery.quotesFound || 0} quotes`;
-        icon = "check_circle";
         
         const { id } = toast({
-          title: (
-            <div className="flex items-center gap-2">
-              <span className="material-icons text-green-500">check_circle</span>
-              <span>{title}</span>
-            </div>
-          ),
+          title,
           description,
           duration: 5000,
         });
@@ -190,12 +188,7 @@ export default function Home() {
 
       if (currentQuery.status !== "completed") {
         const { id } = toast({
-          title: (
-            <div className="flex items-center gap-2">
-              <span className="material-icons animate-spin text-primary">{icon}</span>
-              <span>{title}</span>
-            </div>
-          ),
+          title,
           description,
           duration: Infinity,
         });
