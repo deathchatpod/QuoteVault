@@ -56,6 +56,13 @@ Preferred communication style: Simple, everyday language.
 
 **Error Handling**: Rate limit detection and retry logic using p-retry and p-limit for concurrent request management
 
+**Performance Optimizations** (November 2025):
+- **Configuration Management**: Centralized config module (`server/config.ts`) with Zod validation ensures all environment variables are validated at startup, failing fast if required keys are missing
+- **Lazy Initialization**: Pop culture adapters initialized asynchronously during server startup instead of at module load time, preventing boot crashes and improving startup resilience
+- **DRY Pagination**: Reusable `fetchPaginated` utility in `server/services/api-utils.ts` eliminates ~40 lines of duplicate pagination code across API adapters (Quotable, FavQs, Sefaria)
+- **Concurrent Verification**: Quote verification now processes 5 quotes in parallel using `pLimit(5)` instead of sequentially, significantly reducing total search time
+- **Config Consistency**: All service modules (AI services, adapters, scrapers) now use the centralized config module instead of direct `process.env` access
+
 ### Data Storage
 
 **Database**: PostgreSQL via Neon serverless with WebSocket support
