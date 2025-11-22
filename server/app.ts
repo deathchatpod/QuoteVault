@@ -7,7 +7,9 @@ import express, {
   NextFunction,
 } from "express";
 
+import { config } from "./config";
 import { registerRoutes } from "./routes";
+import { initializePopCultureAdapters } from "./services/pop-culture-service";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -67,6 +69,15 @@ app.use((req, res, next) => {
 export default async function runApp(
   setup: (app: Express, server: Server) => Promise<void>,
 ) {
+  // Initialize pop culture adapters asynchronously with error handling
+  try {
+    initializePopCultureAdapters();
+    log("Pop culture adapters initialized", "startup");
+  } catch (error) {
+    log(`Warning: Some adapters failed to initialize: ${error}`, "startup");
+    // Server can still start - adapters will report individual failures
+  }
+
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -85,12 +96,11 @@ export default async function runApp(
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5000', 10);
   server.listen({
-    port,
+    port: config.server.port,
     host: "0.0.0.0",
     reusePort: true,
   }, () => {
-    log(`serving on port ${port}`);
+    log(`serving on port ${config.server.port}`);
   });
 }

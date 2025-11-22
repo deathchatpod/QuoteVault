@@ -10,10 +10,6 @@ import { fetchBhagavadGita, fetchDhammapada, fetchHadith, fetchBuddhistSutras } 
 import { extractQuotesWithAI, enrichQuoteData } from "./services/gemini-research";
 import { verifyQuote, batchVerifyQuotes } from "./services/anthropic-verify";
 import { exportQuotesToGoogleSheets } from "./services/google-sheets";
-import { initializePopCultureAdapters } from "./services/pop-culture-service";
-
-// Initialize pop culture adapters on module load
-initializePopCultureAdapters();
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/quotes - Get all quotes
