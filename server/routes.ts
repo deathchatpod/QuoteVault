@@ -5,7 +5,8 @@ import { searchFormSchema, insertQuoteSchema } from "@shared/schema";
 import { searchQuotableAPI } from "./services/quotable-api";
 import { searchFavQsAPI } from "./services/favqs-api";
 import { searchSefariaAPI } from "./services/sefaria-api";
-import { scrapeWikiquote, scrapeProjectGutenberg } from "./services/web-scraper";
+import { scrapeWikiquote, scrapeProjectGutenberg, scrapeWikipedia, scrapeWikidata } from "./services/web-scraper";
+import { fetchBhagavadGita, fetchDhammapada, fetchHadith, fetchBuddhistSutras } from "./services/religious-texts";
 import { extractQuotesWithAI, enrichQuoteData } from "./services/gemini-research";
 import { verifyQuote, batchVerifyQuotes } from "./services/anthropic-verify";
 import { exportQuotesToGoogleSheets } from "./services/google-sheets";
@@ -142,8 +143,179 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // PATCH /api/quotes/:id - Edit a quote
+  app.patch("/api/quotes/:id", async (req, res) => {
+    try {
+      const quoteId = req.params.id;
+      const updateData = req.body;
+      
+      const updatedQuote = await storage.updateQuote(quoteId, updateData);
+      if (!updatedQuote) {
+        return res.status(404).json({ error: "Quote not found" });
+      }
+      
+      res.json(updatedQuote);
+    } catch (error: any) {
+      console.error("Update quote error:", error);
+      res.status(500).json({ error: error.message || "Failed to update quote" });
+    }
+  });
+
+  // DELETE /api/quotes/:id - Delete a quote
+  app.delete("/api/quotes/:id", async (req, res) => {
+    try {
+      await storage.deleteQuote(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete quote error:", error);
+      res.status(500).json({ error: error.message || "Failed to delete quote" });
+    }
+  });
+
+  // POST /api/export-filtered - Export quotes with filters
+  app.post("/api/export-filtered", async (req, res) => {
+    try {
+      const { verified, minConfidence, searchType, dateFrom, dateTo } = req.body;
+      
+      let quotes = await storage.getAllQuotes();
+      
+      if (verified !== undefined) {
+        quotes = quotes.filter(q => q.verified === verified);
+      }
+      
+      if (minConfidence) {
+        quotes = quotes.filter(q => (q.confidenceScore ?? 0) >= minConfidence);
+      }
+      
+      if (searchType) {
+        quotes = quotes.filter(q => q.type === searchType);
+      }
+      
+      if (dateFrom) {
+        quotes = quotes.filter(q => new Date(q.createdAt) >= new Date(dateFrom));
+      }
+      
+      if (dateTo) {
+        quotes = quotes.filter(q => new Date(q.createdAt) <= new Date(dateTo));
+      }
+      
+      const url = await exportQuotesToGoogleSheets(quotes);
+      res.json({ url });
+    } catch (error: any) {
+      console.error("Filtered export error:", error);
+      res.status(500).json({ error: error.message || "Filtered export failed" });
+    }
+  });
+
+  // POST /api/bulk-upload - Upload CSV for bulk processing
+  app.post("/api/bulk-upload", async (req, res) => {
+    try {
+      const { csvContent, filename } = req.body;
+      
+      if (!csvContent || !filename) {
+        return res.status(400).json({ error: "CSV content and filename are required" });
+      }
+      
+      // Parse CSV (will add the import later)
+      const { parseCSV } = await import("./services/csv-processor");
+      const queries = parseCSV(csvContent);
+      
+      if (queries.length === 0) {
+        return res.status(400).json({ error: "No valid queries found in CSV" });
+      }
+      
+      // Create bulk job record
+      const { bulkJobs } = await import("@shared/schema");
+      const { db } = await import("./db");
+      
+      const [bulkJob] = await db.insert(bulkJobs).values({
+        filename,
+        totalQueries: queries.length,
+        completedQueries: 0,
+        status: "processing",
+      }).returning();
+      
+      // Process queries sequentially in background
+      processBulkQueries(bulkJob.id, queries).catch(console.error);
+      
+      res.json({ jobId: bulkJob.id, totalQueries: queries.length });
+    } catch (error: any) {
+      console.error("Bulk upload error:", error);
+      res.status(500).json({ error: error.message || "Bulk upload failed" });
+    }
+  });
+
+  // GET /api/bulk-jobs/:id - Get bulk job status
+  app.get("/api/bulk-jobs/:id", async (req, res) => {
+    try {
+      const { bulkJobs } = await import("@shared/schema");
+      const { db } = await import("./db");
+      const { eq } = await import("drizzle-orm");
+      
+      const [job] = await db.select().from(bulkJobs).where(eq(bulkJobs.id, req.params.id));
+      
+      if (!job) {
+        return res.status(404).json({ error: "Bulk job not found" });
+      }
+      
+      res.json(job);
+    } catch (error: any) {
+      console.error("Get bulk job error:", error);
+      res.status(500).json({ error: "Failed to fetch bulk job" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
+}
+
+// Background bulk processing function
+async function processBulkQueries(jobId: string, queries: any[]) {
+  try {
+    const { bulkJobs } = await import("@shared/schema");
+    const { db } = await import("./db");
+    const { eq } = await import("drizzle-orm");
+    
+    for (let i = 0; i < queries.length; i++) {
+      const { query, searchType, maxQuotes } = queries[i];
+      
+      // Create and process search query
+      const searchQuery = await storage.createSearchQuery({
+        query,
+        searchType,
+        maxQuotes,
+        status: "processing",
+        quotesFound: 0,
+        quotesVerified: 0,
+        apiCost: 0,
+      });
+      
+      await processSearch(searchQuery.id, query, searchType, maxQuotes);
+      
+      // Update bulk job progress
+      await db.update(bulkJobs)
+        .set({ completedQueries: i + 1 })
+        .where(eq(bulkJobs.id, jobId));
+    }
+    
+    // Mark bulk job as completed
+    await db.update(bulkJobs)
+      .set({ 
+        status: "completed",
+        completedAt: new Date(),
+      })
+      .where(eq(bulkJobs.id, jobId));
+      
+  } catch (error) {
+    console.error("Bulk processing error:", error);
+    const { bulkJobs } = await import("@shared/schema");
+    const { db } = await import("./db");
+    const { eq } = await import("drizzle-orm");
+    
+    await db.update(bulkJobs)
+      .set({ status: "failed" })
+      .where(eq(bulkJobs.id, jobId));
+  }
 }
 
 // Background processing function
@@ -174,8 +346,14 @@ async function processSearch(
     await storage.updateSearchQuery(queryId, { status: "web_scraping" });
 
     const scrapingResults = await Promise.all([
-      scrapeWikiquote(query, searchType, Math.floor(maxQuotes * 0.2)),
-      scrapeProjectGutenberg(query, Math.floor(maxQuotes * 0.1)),
+      scrapeWikiquote(query, searchType, Math.floor(maxQuotes * 0.15)),
+      scrapeProjectGutenberg(query, Math.floor(maxQuotes * 0.05)),
+      scrapeWikipedia(query, searchType, Math.floor(maxQuotes * 0.15)),
+      scrapeWikidata(query, searchType),
+      fetchBhagavadGita(query, Math.floor(maxQuotes * 0.05)),
+      fetchDhammapada(query, Math.floor(maxQuotes * 0.05)),
+      fetchHadith(query, Math.floor(maxQuotes * 0.05)),
+      fetchBuddhistSutras(query, Math.floor(maxQuotes * 0.05)),
     ]);
 
     const scrapedQuotes = scrapingResults.flat();

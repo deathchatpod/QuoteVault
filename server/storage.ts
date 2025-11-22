@@ -1,6 +1,7 @@
 import { quotes, searchQueries, type Quote, type InsertQuote, type SearchQuery, type InsertSearchQuery } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, sql } from "drizzle-orm";
+import { calculateConfidenceScore } from "./services/confidence-scoring";
 
 export interface IStorage {
   // Quotes
@@ -31,14 +32,36 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createQuote(insertQuote: InsertQuote): Promise<Quote> {
-    const [quote] = await db.insert(quotes).values(insertQuote).returning();
+    const confidenceScore = calculateConfidenceScore(
+      insertQuote.verified ?? false,
+      (insertQuote.sourceConfidence as "high" | "medium" | "low") ?? "medium",
+      (insertQuote.sources as string[]) ?? [],
+      !!insertQuote.reference
+    );
+    
+    const quoteWithScore = {
+      ...insertQuote,
+      confidenceScore,
+    };
+    
+    const [quote] = await db.insert(quotes).values(quoteWithScore).returning();
     return quote;
   }
 
   async updateQuote(id: string, updateData: Partial<InsertQuote>): Promise<Quote | undefined> {
+    const existing = await this.getQuote(id);
+    if (!existing) return undefined;
+    
+    const confidenceScore = calculateConfidenceScore(
+      updateData.verified ?? existing.verified,
+      (updateData.sourceConfidence as "high" | "medium" | "low") ?? existing.sourceConfidence as any,
+      (updateData.sources as string[]) ?? (existing.sources as string[] ?? []),
+      !!(updateData.reference ?? existing.reference)
+    );
+    
     const [quote] = await db
       .update(quotes)
-      .set(updateData)
+      .set({ ...updateData, confidenceScore })
       .where(eq(quotes.id, id))
       .returning();
     return quote || undefined;
@@ -57,25 +80,36 @@ export class DatabaseStorage implements IStorage {
   }
 
   async mergeQuotes(existingQuote: Quote, newData: Partial<InsertQuote>): Promise<Quote> {
+    const mergedSources = Array.from(new Set([
+      ...(Array.isArray(existingQuote.sources) ? (existingQuote.sources as string[]) : []),
+      ...(Array.isArray(newData.sources) ? (newData.sources as string[]) : []),
+    ]));
+    
+    const mergedConfidence = (newData.sourceConfidence === "high" || existingQuote.sourceConfidence === "high")
+      ? "high"
+      : (newData.sourceConfidence === "medium" || existingQuote.sourceConfidence === "medium")
+      ? "medium"
+      : existingQuote.sourceConfidence;
+    
+    const mergedVerified = newData.verified ?? existingQuote.verified;
+    const mergedReference = newData.reference || existingQuote.reference;
+    
     const mergedData: Partial<InsertQuote> = {
       speaker: newData.speaker || existingQuote.speaker,
       author: newData.author || existingQuote.author,
       work: newData.work || existingQuote.work,
       year: newData.year || existingQuote.year,
       type: newData.type || existingQuote.type,
-      reference: newData.reference || existingQuote.reference,
-      verified: newData.verified ?? existingQuote.verified,
-      sourceConfidence: (newData.sourceConfidence === "high" || existingQuote.sourceConfidence === "high")
-        ? "high"
-        : (newData.sourceConfidence === "medium" || existingQuote.sourceConfidence === "medium")
-        ? "medium"
-        : existingQuote.sourceConfidence,
-      sources: [
-        ...new Set([
-          ...(Array.isArray(existingQuote.sources) ? (existingQuote.sources as string[]) : []),
-          ...(Array.isArray(newData.sources) ? (newData.sources as string[]) : []),
-        ]),
-      ],
+      reference: mergedReference,
+      verified: mergedVerified,
+      sourceConfidence: mergedConfidence,
+      sources: mergedSources,
+      confidenceScore: calculateConfidenceScore(
+        mergedVerified,
+        mergedConfidence as "high" | "medium" | "low",
+        mergedSources,
+        !!mergedReference
+      ),
     };
 
     const [updated] = await db

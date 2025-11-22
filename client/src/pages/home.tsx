@@ -16,14 +16,21 @@ import { QuoteTable } from "@/components/quote-table";
 import { CostDashboard } from "@/components/cost-dashboard";
 import { ProcessingStatus } from "@/components/processing-status";
 import { GoogleSheetsStatus } from "@/components/google-sheets-status";
+import { QuoteEditDialog } from "@/components/quote-edit-dialog";
+import { CSVUploadDialog } from "@/components/csv-upload-dialog";
+import { ExportFiltersDialog } from "@/components/export-filters-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Upload, FileSpreadsheet } from "lucide-react";
 
 export default function Home() {
   const [query, setQuery] = useState("");
   const [searchType, setSearchType] = useState<"topic" | "author" | "work">("topic");
   const [maxQuotes, setMaxQuotes] = useState<number[]>([250]);
   const [currentQueryId, setCurrentQueryId] = useState<string | null>(null);
-  const { toast } = useToast();
+  const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
+  const [showCsvUpload, setShowCsvUpload] = useState(false);
+  const [showExportFilters, setShowExportFilters] = useState(false);
+  const { toast} = useToast();
 
   const { data: quotes, isLoading: quotesLoading } = useQuery<Quote[]>({
     queryKey: ["/api/quotes"],
@@ -267,7 +274,25 @@ export default function Home() {
             <div className="space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <h2 className="text-2xl font-bold text-foreground">Results</h2>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="button-csv-upload"
+                    onClick={() => setShowCsvUpload(true)}
+                  >
+                    <Upload className="mr-2 w-4 h-4" />
+                    Bulk CSV Upload
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="button-export-filtered"
+                    onClick={() => setShowExportFilters(true)}
+                  >
+                    <FileSpreadsheet className="mr-2 w-4 h-4" />
+                    Export with Filters
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
@@ -276,7 +301,7 @@ export default function Home() {
                     disabled={exportMutation.isPending}
                   >
                     <span className="material-icons mr-2 text-lg" aria-hidden="true">cloud_upload</span>
-                    {exportMutation.isPending ? "Exporting..." : "Export to Sheets"}
+                    {exportMutation.isPending ? "Exporting..." : "Export All"}
                   </Button>
                   <Button
                     variant="outline"
@@ -305,7 +330,7 @@ export default function Home() {
                 <TabsContent value="cards" className="mt-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {quotes.map((quote) => (
-                      <QuoteCard key={quote.id} quote={quote} />
+                      <QuoteCard key={quote.id} quote={quote} onEdit={setEditingQuote} />
                     ))}
                   </div>
                 </TabsContent>
@@ -329,6 +354,22 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      <QuoteEditDialog
+        quote={editingQuote}
+        open={!!editingQuote}
+        onOpenChange={(open) => !open && setEditingQuote(null)}
+      />
+
+      <CSVUploadDialog
+        open={showCsvUpload}
+        onOpenChange={setShowCsvUpload}
+      />
+
+      <ExportFiltersDialog
+        open={showExportFilters}
+        onOpenChange={setShowExportFilters}
+      />
     </div>
   );
 }

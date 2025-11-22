@@ -1,12 +1,16 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Quote } from "@shared/schema";
+import { Edit } from "lucide-react";
 
 interface QuoteCardProps {
   quote: Quote;
+  onEdit?: (quote: Quote) => void;
 }
 
-export function QuoteCard({ quote }: QuoteCardProps) {
+export function QuoteCard({ quote, onEdit }: QuoteCardProps) {
+  const confidenceScore = quote.confidenceScore !== null ? Math.round((quote.confidenceScore ?? 0) * 100) : null;
   const getConfidenceBadgeVariant = (confidence: string | null) => {
     switch (confidence) {
       case "high":
@@ -44,7 +48,18 @@ export function QuoteCard({ quote }: QuoteCardProps) {
       data-testid={`card-quote-${quote.id}`}
       className="relative rounded-lg border-2 hover-elevate active-elevate-2"
     >
-      <div className="absolute top-4 right-4">
+      <div className="absolute top-4 right-4 flex items-center gap-2">
+        {onEdit && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onEdit(quote)}
+            data-testid={`button-edit-quote-${quote.id}`}
+            className="hover-elevate"
+          >
+            <Edit className="w-4 h-4" />
+          </Button>
+        )}
         {quote.verified ? (
           <span
             className="material-icons text-green-600"
@@ -113,9 +128,10 @@ export function QuoteCard({ quote }: QuoteCardProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 pt-2">
-          {quote.sourceConfidence && (
+          {confidenceScore !== null && (
             <Badge variant={getConfidenceBadgeVariant(quote.sourceConfidence)} className="px-3 py-1 text-xs font-semibold rounded-full">
-              {quote.sourceConfidence} confidence
+              <span className="material-icons text-xs mr-1" aria-hidden="true">speed</span>
+              {confidenceScore}% confidence
             </Badge>
           )}
           {quote.type && (
@@ -123,10 +139,10 @@ export function QuoteCard({ quote }: QuoteCardProps) {
               {quote.type}
             </Badge>
           )}
-          {quote.sources && (quote.sources as string[]).length > 1 && (
-            <Badge variant="outline" className="px-3 py-1 text-xs font-semibold rounded-full">
+          {quote.sources && (quote.sources as string[]).length > 0 && (
+            <Badge variant="outline" className="px-3 py-1 text-xs font-semibold rounded-full" title={(quote.sources as string[]).join(", ")}>
               <span className="material-icons text-xs mr-1" aria-hidden="true">merge</span>
-              {(quote.sources as string[]).length} sources
+              {(quote.sources as string[]).length} source{(quote.sources as string[]).length > 1 ? "s" : ""}
             </Badge>
           )}
         </div>

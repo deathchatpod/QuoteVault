@@ -13,6 +13,7 @@ export const quotes = pgTable("quotes", {
   type: varchar("type", { length: 50 }),
   verified: boolean("verified").default(false).notNull(),
   sourceConfidence: varchar("source_confidence", { length: 20 }).default("medium"),
+  confidenceScore: real("confidence_score").default(0.5),
   reference: text("reference"),
   sources: jsonb("sources").$type<string[]>().default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -32,6 +33,16 @@ export const searchQueries = pgTable("search_queries", {
   completedAt: timestamp("completed_at"),
 });
 
+export const bulkJobs = pgTable("bulk_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  filename: text("filename").notNull(),
+  totalQueries: integer("total_queries").notNull(),
+  completedQueries: integer("completed_queries").default(0).notNull(),
+  status: varchar("status", { length: 20 }).default("pending").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
 export const insertQuoteSchema = createInsertSchema(quotes).omit({
   id: true,
   createdAt: true,
@@ -43,11 +54,20 @@ export const insertSearchQuerySchema = createInsertSchema(searchQueries).omit({
   completedAt: true,
 });
 
+export const insertBulkJobSchema = createInsertSchema(bulkJobs).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+});
+
 export type InsertQuote = z.infer<typeof insertQuoteSchema>;
 export type Quote = typeof quotes.$inferSelect;
 
 export type InsertSearchQuery = z.infer<typeof insertSearchQuerySchema>;
 export type SearchQuery = typeof searchQueries.$inferSelect;
+
+export type InsertBulkJob = z.infer<typeof insertBulkJobSchema>;
+export type BulkJob = typeof bulkJobs.$inferSelect;
 
 export const searchFormSchema = z.object({
   query: z.string().min(1, "Query is required"),
