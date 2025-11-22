@@ -399,7 +399,10 @@ async function processSearch(
 
     // Separate structured pop culture quotes from raw quotes needing AI processing
     const structuredQuotes = apiQuotes.filter(q => 
-      q.sources?.some(s => ['tv-quotes-api', 'lyrics-ovh', 'genius', 'celebrity-lines', 'api-ninjas-quotes', 'miller-center', 'rev-com'].includes(s))
+      q.sources?.some(s => [
+        'tv-quotes-api', 'lyrics-ovh', 'genius', 'celebrity-lines', 'api-ninjas-quotes', 'miller-center', 'rev-com',
+        'typefit', 'zenquotes', 'affirmations-dev', 'philosophy-rest', 'philosophy-api', 'philosophers-api', 'stands4-phrases'
+      ].includes(s))
     );
     
     const rawQuotes = [

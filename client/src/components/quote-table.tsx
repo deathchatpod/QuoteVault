@@ -36,6 +36,7 @@ export function QuoteTable({ quotes }: QuoteTableProps) {
             <TableHead className="font-medium">Author</TableHead>
             <TableHead className="font-medium">Work</TableHead>
             <TableHead className="font-medium">Year</TableHead>
+            <TableHead className="font-medium">Sources</TableHead>
             <TableHead className="font-medium text-center">Verified</TableHead>
             <TableHead className="font-medium text-center">Actions</TableHead>
           </TableRow>
@@ -76,6 +77,24 @@ export function QuoteTable({ quotes }: QuoteTableProps) {
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
                   {quote.year || "—"}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {quote.sources && quote.sources.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {quote.sources.slice(0, 3).map((source, idx) => (
+                        <Badge key={idx} variant="outline" className="text-xs px-1.5 py-0.5">
+                          {source}
+                        </Badge>
+                      ))}
+                      {quote.sources.length > 3 && (
+                        <Badge variant="outline" className="text-xs px-1.5 py-0.5">
+                          +{quote.sources.length - 3}
+                        </Badge>
+                      )}
+                    </div>
+                  ) : (
+                    "—"
+                  )}
                 </TableCell>
                 <TableCell className="text-center">
                   {quote.verified ? (
