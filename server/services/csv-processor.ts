@@ -10,7 +10,7 @@ export function parseCSV(csvContent: string): CSVRow[] {
   
   const rows: CSVRow[] = [];
   
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
     

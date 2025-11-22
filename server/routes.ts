@@ -245,6 +245,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/bulk-jobs - Get all bulk jobs
+  app.get("/api/bulk-jobs", async (req, res) => {
+    try {
+      const { bulkJobs } = await import("@shared/schema");
+      const { db } = await import("./db");
+      const { desc } = await import("drizzle-orm");
+      
+      const jobs = await db.select().from(bulkJobs).orderBy(desc(bulkJobs.createdAt));
+      
+      res.json(jobs);
+    } catch (error) {
+      console.error("[api/bulk-jobs] Error:", error);
+      res.status(500).json({ error: "Failed to fetch bulk jobs" });
+    }
+  });
+
   // GET /api/bulk-jobs/:id - Get bulk job status
   app.get("/api/bulk-jobs/:id", async (req, res) => {
     try {
