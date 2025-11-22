@@ -400,14 +400,21 @@ async function processSearch(
     ];
 
     // Process structured pop culture quotes directly (skip AI extraction)
+    console.log(`[Search] Processing ${structuredQuotes.length} structured pop culture quotes`);
     for (const popQuote of structuredQuotes) {
       if (quotesFound >= maxQuotes) break;
       
       const duplicate = await storage.findDuplicateQuote(popQuote.quote);
       
       if (!duplicate) {
-        await storage.createQuote(popQuote);
+        const created = await storage.createQuote(popQuote);
+        console.log(`[Search] Created pop culture quote: ${created.id} - "${created.quote.substring(0, 50)}..." (type: ${created.type}, sources: ${created.sources})`);
         quotesFound++;
+        if (created.verified) {
+          quotesVerified++;
+        }
+      } else {
+        console.log(`[Search] Skipping duplicate pop culture quote: "${popQuote.quote.substring(0, 50)}..."`);
       }
     }
 
@@ -489,6 +496,7 @@ async function processSearch(
 
     // Complete the search query
     const processingTime = Date.now() - startTime;
+    console.log(`[Search] Completing query ${queryId}: found=${quotesFound}, verified=${quotesVerified}, cost=$${totalCost.toFixed(4)}, time=${processingTime}ms`);
     await storage.completeSearchQuery(
       queryId,
       quotesFound,
@@ -496,6 +504,7 @@ async function processSearch(
       totalCost,
       processingTime
     );
+    console.log(`[Search] Query ${queryId} completed successfully`);
   } catch (error) {
     console.error("Processing error:", error);
     await storage.updateSearchQuery(queryId, { status: "failed" });
