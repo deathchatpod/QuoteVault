@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import { Quote, SearchQuery } from "@shared/schema";
 import { QuoteCard } from "@/components/quote-card";
@@ -20,7 +21,7 @@ import { QuoteEditDialog } from "@/components/quote-edit-dialog";
 import { CSVUploadDialog } from "@/components/csv-upload-dialog";
 import { ExportFiltersDialog } from "@/components/export-filters-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Upload, FileSpreadsheet } from "lucide-react";
+import { Upload, FileSpreadsheet, ChevronDown } from "lucide-react";
 
 export default function Home() {
   const [query, setQuery] = useState("");
@@ -30,7 +31,10 @@ export default function Home() {
   const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
   const [showCsvUpload, setShowCsvUpload] = useState(false);
   const [showExportFilters, setShowExportFilters] = useState(false);
+  const [searchFormOpen, setSearchFormOpen] = useState(true);
   const { toast} = useToast();
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const processingRef = useRef<HTMLDivElement>(null);
 
   const { data: quotes, isLoading: quotesLoading } = useQuery<Quote[]>({
     queryKey: ["/api/quotes"],
@@ -39,15 +43,16 @@ export default function Home() {
   const { data: currentQuery } = useQuery<SearchQuery>({
     queryKey: currentQueryId ? [`/api/queries/${currentQueryId}`] : ["/api/queries/null"],
     enabled: !!currentQueryId,
-    refetchInterval: (data) => {
-      return data?.status === "processing" || data?.status === "searching_apis" || data?.status === "web_scraping" || data?.status === "verifying" ? 2000 : false;
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "processing" || status === "searching_apis" || status === "web_scraping" || status === "verifying" ? 2000 : false;
     },
   });
 
   const searchMutation = useMutation({
     mutationFn: async (data: { query: string; searchType: string; maxQuotes: number }) => {
       const result = await apiRequest("POST", "/api/search", data);
-      return result;
+      return result as unknown as { queryId: string };
     },
     onSuccess: (data) => {
       setCurrentQueryId(data.queryId);
@@ -67,7 +72,8 @@ export default function Home() {
 
   const verifyMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("POST", "/api/quotes/verify", {});
+      const result = await apiRequest("POST", "/api/quotes/verify", {});
+      return result as unknown as { verified: number; total: number; totalCost: number };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
@@ -105,11 +111,31 @@ export default function Home() {
     },
   });
 
+  const isProcessing = (currentQueryId && !currentQuery) || currentQuery?.status === "processing" || currentQuery?.status === "searching_apis" || currentQuery?.status === "web_scraping" || currentQuery?.status === "verifying";
+  const hasQuotes = quotes && quotes.length > 0;
+
   useEffect(() => {
     if (currentQuery?.status === "completed") {
       queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 500);
     }
   }, [currentQuery?.status]);
+
+  useEffect(() => {
+    if (isProcessing) {
+      setSearchFormOpen(false);
+    }
+  }, [isProcessing]);
+
+  useEffect(() => {
+    if (isProcessing && currentQuery && processingRef.current) {
+      setTimeout(() => {
+        processingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    }
+  }, [isProcessing, currentQuery]);
 
   const handleSearch = async () => {
     if (!query.trim()) return;
@@ -119,9 +145,6 @@ export default function Home() {
       maxQuotes: maxQuotes[0],
     });
   };
-
-  const isProcessing = (currentQueryId && !currentQuery) || currentQuery?.status === "processing" || currentQuery?.status === "searching_apis" || currentQuery?.status === "web_scraping" || currentQuery?.status === "verifying";
-  const hasQuotes = quotes && quotes.length > 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -134,14 +157,26 @@ export default function Home() {
       </header>
 
       <main className="mx-auto max-w-7xl px-6 py-8">
-        <Card className="mb-8 rounded-lg border-2">
-          <CardHeader className="p-6">
-            <CardTitle className="text-2xl font-bold text-foreground">Search for Quotes</CardTitle>
-            <CardDescription className="text-sm text-muted-foreground mt-2">
-              Find and verify quotes by topic, author, or work. Search across multiple sources including public APIs and web scraping.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-6 pt-0 space-y-6">
+        <Collapsible open={searchFormOpen} onOpenChange={setSearchFormOpen} className="mb-8">
+          <Card className="rounded-lg border-2">
+            <CollapsibleTrigger asChild>
+              <CardHeader className="p-6 cursor-pointer hover-elevate">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-2xl font-bold text-foreground">Search for Quotes</CardTitle>
+                    <CardDescription className="text-sm text-muted-foreground mt-2">
+                      Find and verify quotes by topic, author, or work. Search across multiple sources including public APIs and web scraping.
+                    </CardDescription>
+                  </div>
+                  <ChevronDown 
+                    className={`h-5 w-5 text-muted-foreground transition-transform ${searchFormOpen ? "" : "-rotate-90"}`}
+                    data-testid="icon-toggle-search-form"
+                  />
+                </div>
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="p-6 pt-0 space-y-6">
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="search-query" className="text-sm font-medium text-foreground">
@@ -216,33 +251,54 @@ export default function Home() {
               </div>
             </div>
 
-            <Button
-              data-testid="button-start-search"
-              onClick={handleSearch}
-              disabled={!query.trim() || isProcessing || searchMutation.isPending}
-              size="lg"
-              className="w-full py-3 px-8 rounded-md font-semibold"
-            >
-              <span className="material-icons mr-2" aria-hidden="true">search</span>
-              {isProcessing || searchMutation.isPending ? "Processing..." : "Start Research"}
-            </Button>
-          </CardContent>
-        </Card>
+                <Button
+                  data-testid="button-start-search"
+                  onClick={handleSearch}
+                  disabled={!query.trim() || isProcessing || searchMutation.isPending}
+                  size="lg"
+                  className="w-full py-3 px-8 rounded-md font-semibold"
+                >
+                  <span className="material-icons mr-2" aria-hidden="true">search</span>
+                  {isProcessing || searchMutation.isPending ? "Processing..." : "Start Research"}
+                </Button>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
 
-        {isProcessing && currentQuery && (
-          <>
-            <ProcessingStatus
-              queryId={currentQuery.id}
-              currentStage={currentQuery.status as any}
-              progress={
-                currentQuery.status === "processing" ? 10 :
-                currentQuery.status === "searching_apis" ? 25 :
-                currentQuery.status === "web_scraping" ? 50 :
-                currentQuery.status === "verifying" ? 75 : 10
-              }
-            />
-            <Separator className="my-8" />
-          </>
+        {isProcessing && (
+          <div ref={processingRef}>
+            <Card className="mb-8 rounded-lg border-2 border-primary bg-primary/5" data-testid="card-processing">
+              <CardHeader className="p-6">
+                <CardTitle className="text-2xl font-bold text-foreground flex items-center gap-2">
+                  <span className="material-icons text-primary animate-spin" aria-hidden="true">autorenew</span>
+                  Search In Progress
+                </CardTitle>
+                <CardDescription className="text-sm text-muted-foreground mt-2">
+                  Processing your request across multiple sources. This may take up to 60 seconds.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-6 pt-0">
+                {currentQuery ? (
+                  <ProcessingStatus
+                    queryId={currentQuery.id}
+                    currentStage={currentQuery.status as any}
+                    progress={
+                      currentQuery.status === "processing" ? 10 :
+                      currentQuery.status === "searching_apis" ? 25 :
+                      currentQuery.status === "web_scraping" ? 50 :
+                      currentQuery.status === "verifying" ? 75 : 10
+                    }
+                  />
+                ) : (
+                  <div className="flex items-center gap-3 py-4">
+                    <span className="material-icons text-primary animate-spin">hourglass_empty</span>
+                    <p className="text-sm text-muted-foreground">Initializing search...</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {currentQuery?.status === "completed" && (
@@ -270,7 +326,7 @@ export default function Home() {
         )}
 
         {!quotesLoading && hasQuotes && (
-          <>
+          <div ref={resultsRef}>
             <div className="space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <h2 className="text-2xl font-bold text-foreground">Results</h2>
@@ -316,7 +372,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <Tabs defaultValue="cards" className="w-full">
+              <Tabs defaultValue="table" className="w-full">
                 <TabsList className="grid w-full max-w-md grid-cols-2">
                   <TabsTrigger value="cards" data-testid="tab-cards">
                     <span className="material-icons mr-2 text-sm" aria-hidden="true">view_module</span>
@@ -339,7 +395,7 @@ export default function Home() {
                 </TabsContent>
               </Tabs>
             </div>
-          </>
+          </div>
         )}
 
         {!quotesLoading && !hasQuotes && !isProcessing && (
