@@ -2,7 +2,7 @@
 
 ## Overview
 
-A comprehensive quote research and verification system that aggregates quotes from multiple sources (APIs, web scraping, religious texts), enriches them with AI-powered research, verifies their accuracy using advanced language models, and exports results to Google Sheets. The application provides real-time processing status, cost tracking, and a data-rich interface for managing quote collections.
+A comprehensive quote research and verification system that aggregates quotes from multiple sources (APIs, web scraping, religious texts), enriches them with AI-powered research, verifies their accuracy using advanced language models, and exports results to Google Sheets. The application provides real-time processing status, cost tracking, persistent status notifications, query history tracking with filtering, and a data-rich interface for managing quote collections.
 
 ## User Preferences
 
@@ -25,8 +25,10 @@ Preferred communication style: Simple, everyday language.
 - Card-based layouts for quote display with hover/active elevation states
 - Table views for dense data presentation
 - Real-time processing status indicators with progress tracking
+- **Persistent Toast Notifications**: Bottom-right status updates during search with emoji indicators (🔍 Searching, 🌐 Web scraping, ✅ Verifying, ✅ Completed)
+- **"By Query" History View**: Searchable table of all past queries with click-to-filter functionality
 - Cost dashboard showing API expenses, quote counts, and processing metrics
-- Tabs for switching between card and table view modes
+- Tabs for switching between card, table, and query history view modes
 
 **Design Rationale**: Material Design provides well-established patterns for data-heavy applications with strong hierarchy, clear information density, and functional clarity - ideal for a research tool that needs to display complex quote metadata, verification status, and cost information simultaneously.
 
@@ -83,10 +85,18 @@ Preferred communication style: Simple, everyday language.
 - Metrics: quotes found/verified counts, API costs, processing time
 - Timestamps for query lifecycle tracking
 
+**Quote-Query Junction Table (quoteQueries)**:
+- Links quotes to the queries that discovered them (many-to-many relationship)
+- Enables "By Query" filtering to show quotes from specific searches
+- Tracks which sources contributed to each query's results
+- Supports duplicate quotes appearing in multiple search results
+
 **Design Decisions**:
 - **Duplicate Detection**: Quotes are checked for duplicates by text before insertion to prevent redundancy
 - **Source Aggregation**: Multiple sources can contribute to the same quote, stored as JSON array
+- **Query-Quote Linking**: Junction table allows tracking which queries discovered which quotes, enabling historical filtering
 - **Cost Tracking**: API costs tracked at query level for transparency and budget management
+- **Cache Management**: Query list cache is invalidated when searches start and complete to ensure UI shows latest query history
 
 ### Authentication & Authorization
 
