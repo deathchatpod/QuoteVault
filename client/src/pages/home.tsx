@@ -32,12 +32,18 @@ export default function Home() {
   const [showCsvUpload, setShowCsvUpload] = useState(false);
   const [showExportFilters, setShowExportFilters] = useState(false);
   const [searchFormOpen, setSearchFormOpen] = useState(true);
-  const { toast} = useToast();
+  const [selectedQueryFilter, setSelectedQueryFilter] = useState<string | null>(null);
+  const [statusToastId, setStatusToastId] = useState<string | null>(null);
+  const { toast, dismiss } = useToast();
   const resultsRef = useRef<HTMLDivElement>(null);
   const processingRef = useRef<HTMLDivElement>(null);
 
   const { data: quotes, isLoading: quotesLoading } = useQuery<Quote[]>({
     queryKey: ["/api/quotes"],
+  });
+
+  const { data: allQueries } = useQuery<SearchQuery[]>({
+    queryKey: ["/api/queries"],
   });
 
   const { data: currentQuery } = useQuery<SearchQuery>({
@@ -113,6 +119,10 @@ export default function Home() {
 
   const isProcessing = (currentQueryId && !currentQuery) || currentQuery?.status === "processing" || currentQuery?.status === "searching_apis" || currentQuery?.status === "web_scraping" || currentQuery?.status === "verifying";
   const hasQuotes = quotes && quotes.length > 0;
+  
+  const filteredQuotes = selectedQueryFilter 
+    ? quotes?.filter(q => q.sources?.some(s => s.includes(selectedQueryFilter))) || []
+    : quotes || [];
 
   useEffect(() => {
     if (currentQuery?.status === "completed") {
@@ -136,6 +146,63 @@ export default function Home() {
       }, 100);
     }
   }, [isProcessing, currentQuery]);
+
+  useEffect(() => {
+    if (currentQuery) {
+      if (statusToastId) {
+        dismiss(statusToastId);
+      }
+
+      let title = "";
+      let description = "";
+      let icon = "";
+
+      if (currentQuery.status === "processing" || currentQuery.status === "searching_apis") {
+        title = "Searching for quotes...";
+        description = "Checking multiple quote sources";
+        icon = "search";
+      } else if (currentQuery.status === "web_scraping") {
+        title = "Web scraping in progress...";
+        description = "Gathering quotes from Wikiquote and other sources";
+        icon = "travel_explore";
+      } else if (currentQuery.status === "verifying") {
+        title = "Verifying quotes...";
+        description = "Using AI to verify accuracy and attribution";
+        icon = "verified";
+      } else if (currentQuery.status === "completed") {
+        title = "Search completed!";
+        description = `Found ${currentQuery.quotesFound || 0} quotes`;
+        icon = "check_circle";
+        
+        const { id } = toast({
+          title: (
+            <div className="flex items-center gap-2">
+              <span className="material-icons text-green-500">check_circle</span>
+              <span>{title}</span>
+            </div>
+          ),
+          description,
+          duration: 5000,
+        });
+        setStatusToastId(id);
+        return;
+      }
+
+      if (currentQuery.status !== "completed") {
+        const { id } = toast({
+          title: (
+            <div className="flex items-center gap-2">
+              <span className="material-icons animate-spin text-primary">{icon}</span>
+              <span>{title}</span>
+            </div>
+          ),
+          description,
+          duration: Infinity,
+        });
+        setStatusToastId(id);
+      }
+    }
+  }, [currentQuery?.status]);
 
   const handleSearch = async () => {
     if (!query.trim()) return;
@@ -373,7 +440,7 @@ export default function Home() {
               </div>
 
               <Tabs defaultValue="table" className="w-full">
-                <TabsList className="grid w-full max-w-md grid-cols-2">
+                <TabsList className="grid w-full max-w-2xl grid-cols-3">
                   <TabsTrigger value="cards" data-testid="tab-cards">
                     <span className="material-icons mr-2 text-sm" aria-hidden="true">view_module</span>
                     Cards
@@ -382,16 +449,94 @@ export default function Home() {
                     <span className="material-icons mr-2 text-sm" aria-hidden="true">table_chart</span>
                     Table
                   </TabsTrigger>
+                  <TabsTrigger value="queries" data-testid="tab-queries">
+                    <span className="material-icons mr-2 text-sm" aria-hidden="true">history</span>
+                    By Query
+                  </TabsTrigger>
                 </TabsList>
                 <TabsContent value="cards" className="mt-6">
+                  {selectedQueryFilter && (
+                    <div className="mb-4 flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Filtered by query:</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedQueryFilter(null)}
+                        data-testid="button-clear-filter"
+                      >
+                        <span className="material-icons mr-1 text-sm">close</span>
+                        Clear Filter
+                      </Button>
+                    </div>
+                  )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {quotes.map((quote) => (
+                    {filteredQuotes.map((quote) => (
                       <QuoteCard key={quote.id} quote={quote} onEdit={setEditingQuote} />
                     ))}
                   </div>
+                  {selectedQueryFilter && filteredQuotes.length === 0 && (
+                    <p className="text-center text-muted-foreground py-8">No quotes found for this query</p>
+                  )}
                 </TabsContent>
                 <TabsContent value="table" className="mt-6">
-                  <QuoteTable quotes={quotes} />
+                  {selectedQueryFilter && (
+                    <div className="mb-4 flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Filtered by query:</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedQueryFilter(null)}
+                        data-testid="button-clear-filter"
+                      >
+                        <span className="material-icons mr-1 text-sm">close</span>
+                        Clear Filter
+                      </Button>
+                    </div>
+                  )}
+                  <QuoteTable quotes={filteredQuotes} />
+                  {selectedQueryFilter && filteredQuotes.length === 0 && (
+                    <p className="text-center text-muted-foreground py-8">No quotes found for this query</p>
+                  )}
+                </TabsContent>
+                <TabsContent value="queries" className="mt-6">
+                  {allQueries && allQueries.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left p-3 text-sm font-semibold text-foreground">Query</th>
+                            <th className="text-left p-3 text-sm font-semibold text-foreground">Search Type</th>
+                            <th className="text-right p-3 text-sm font-semibold text-foreground">Results</th>
+                            <th className="text-right p-3 text-sm font-semibold text-foreground">Timestamp</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allQueries
+                            .filter(q => q.status === "completed")
+                            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                            .map((query) => (
+                            <tr 
+                              key={query.id}
+                              onClick={() => {
+                                setSelectedQueryFilter(query.id);
+                              }}
+                              className="border-b hover-elevate cursor-pointer"
+                              data-testid={`row-query-${query.id}`}
+                            >
+                              <td className="p-3 text-sm text-foreground font-medium">{query.query}</td>
+                              <td className="p-3 text-sm text-muted-foreground capitalize">{query.searchType}</td>
+                              <td className="p-3 text-sm text-muted-foreground text-right">{query.quotesFound || 0}</td>
+                              <td className="p-3 text-sm text-muted-foreground text-right">
+                                {new Date(query.createdAt).toLocaleDateString()} {new Date(query.createdAt).toLocaleTimeString()}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="text-center text-muted-foreground py-8">No query history yet</p>
+                  )}
                 </TabsContent>
               </Tabs>
             </div>

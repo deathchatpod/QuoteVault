@@ -57,6 +57,13 @@ export const bulkJobs = pgTable("bulk_jobs", {
   completedAt: timestamp("completed_at"),
 });
 
+export const quoteQueries = pgTable("quote_queries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  quoteId: varchar("quote_id").notNull(),
+  queryId: varchar("query_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertQuoteSchema = createInsertSchema(quotes).omit({
   id: true,
   createdAt: true,
@@ -74,6 +81,11 @@ export const insertBulkJobSchema = createInsertSchema(bulkJobs).omit({
   completedAt: true,
 });
 
+export const insertQuoteQuerySchema = createInsertSchema(quoteQueries).omit({
+  id: true,
+  createdAt: true,
+});
+
 export type InsertQuote = z.infer<typeof insertQuoteSchema>;
 export type Quote = typeof quotes.$inferSelect;
 
@@ -82,6 +94,9 @@ export type SearchQuery = typeof searchQueries.$inferSelect;
 
 export type InsertBulkJob = z.infer<typeof insertBulkJobSchema>;
 export type BulkJob = typeof bulkJobs.$inferSelect;
+
+export type InsertQuoteQuery = z.infer<typeof insertQuoteQuerySchema>;
+export type QuoteQuery = typeof quoteQueries.$inferSelect;
 
 export const searchFormSchema = z.object({
   query: z.string().min(1, "Query is required"),

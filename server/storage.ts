@@ -1,4 +1,4 @@
-import { quotes, searchQueries, type Quote, type InsertQuote, type SearchQuery, type InsertSearchQuery } from "@shared/schema";
+import { quotes, searchQueries, quoteQueries, type Quote, type InsertQuote, type SearchQuery, type InsertSearchQuery, type InsertQuoteQuery } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, sql } from "drizzle-orm";
 import { calculateConfidenceScore } from "./services/confidence-scoring";
@@ -19,6 +19,10 @@ export interface IStorage {
   createSearchQuery(query: InsertSearchQuery): Promise<SearchQuery>;
   updateSearchQuery(id: string, query: Partial<InsertSearchQuery>): Promise<SearchQuery | undefined>;
   completeSearchQuery(id: string, quotesFound: number, quotesVerified: number, apiCost: number, processingTimeMs: number): Promise<void>;
+
+  // Quote-Query Links
+  linkQuoteToQuery(quoteId: string, queryId: string): Promise<void>;
+  getQuotesByQueryId(queryId: string): Promise<Quote[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -161,6 +165,21 @@ export class DatabaseStorage implements IStorage {
         completedAt: new Date(),
       })
       .where(eq(searchQueries.id, id));
+  }
+
+  async linkQuoteToQuery(quoteId: string, queryId: string): Promise<void> {
+    await db.insert(quoteQueries).values({ quoteId, queryId });
+  }
+
+  async getQuotesByQueryId(queryId: string): Promise<Quote[]> {
+    const results = await db
+      .select({ quote: quotes })
+      .from(quoteQueries)
+      .innerJoin(quotes, eq(quoteQueries.quoteId, quotes.id))
+      .where(eq(quoteQueries.queryId, queryId))
+      .orderBy(desc(quoteQueries.createdAt));
+    
+    return results.map(r => r.quote);
   }
 }
 
