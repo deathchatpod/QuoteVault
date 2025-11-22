@@ -1,7 +1,7 @@
 // Based on javascript_anthropic_ai_integrations blueprint integration
 import Anthropic from "@anthropic-ai/sdk";
 import pLimit from "p-limit";
-import pRetry from "p-retry";
+import pRetry, { AbortError } from "p-retry";
 
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY!,
@@ -82,7 +82,7 @@ Return JSON only.`;
           if (isRateLimitError(error)) {
             throw error;
           }
-          throw new pRetry.AbortError(error);
+          throw new AbortError(error);
         }
       },
       {

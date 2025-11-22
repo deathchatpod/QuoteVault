@@ -113,7 +113,7 @@ export default function Home() {
     });
   };
 
-  const isProcessing = currentQuery?.status === "processing" || currentQuery?.status === "searching_apis" || currentQuery?.status === "web_scraping" || currentQuery?.status === "verifying";
+  const isProcessing = (currentQueryId && !currentQuery) || currentQuery?.status === "processing" || currentQuery?.status === "searching_apis" || currentQuery?.status === "web_scraping" || currentQuery?.status === "verifying";
   const hasQuotes = quotes && quotes.length > 0;
 
   return (

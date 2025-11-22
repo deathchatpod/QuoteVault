@@ -1,7 +1,7 @@
 // Based on javascript_gemini_ai_integrations blueprint integration
 import { GoogleGenAI, Type } from "@google/genai";
 import pLimit from "p-limit";
-import pRetry from "p-retry";
+import pRetry, { AbortError } from "p-retry";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.AI_INTEGRATIONS_GEMINI_API_KEY!,
@@ -90,7 +90,7 @@ ${rawText.slice(0, 50000)}`;
           if (isRateLimitError(error)) {
             throw error;
           }
-          throw new pRetry.AbortError(error);
+          throw new AbortError(error);
         }
       },
       {
@@ -152,7 +152,7 @@ If any fields are missing or incomplete, try to fill them in with accurate infor
           if (isRateLimitError(error)) {
             throw error;
           }
-          throw new pRetry.AbortError(error);
+          throw new AbortError(error);
         }
       },
       {

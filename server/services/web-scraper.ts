@@ -10,7 +10,12 @@ export async function scrapeWikiquote(
     const quotes: Array<{ quote: string; speaker: string | null; author: string | null; work: string | null; sources: string[] }> = [];
     
     const searchUrl = `https://en.wikiquote.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*`;
-    const searchResponse = await axios.get(searchUrl, { timeout: 10000 });
+    const searchResponse = await axios.get(searchUrl, {
+      timeout: 10000,
+      headers: {
+        "User-Agent": "QuoteResearchBot/1.0 (Educational Research Tool)",
+      },
+    });
     
     const searchResults = searchResponse.data.query?.search || [];
     if (searchResults.length === 0) return quotes;
@@ -18,7 +23,12 @@ export async function scrapeWikiquote(
     const pageTitle = searchResults[0].title;
     const pageUrl = `https://en.wikiquote.org/wiki/${encodeURIComponent(pageTitle.replace(/ /g, "_"))}`;
     
-    const pageResponse = await axios.get(pageUrl, { timeout: 10000 });
+    const pageResponse = await axios.get(pageUrl, {
+      timeout: 10000,
+      headers: {
+        "User-Agent": "QuoteResearchBot/1.0 (Educational Research Tool)",
+      },
+    });
     const $ = cheerio.load(pageResponse.data);
 
     $("ul li").each((_, element) => {
@@ -51,7 +61,12 @@ export async function scrapeProjectGutenberg(
     const quotes: Array<{ quote: string; speaker: string | null; author: string | null; work: string | null; sources: string[] }> = [];
     
     const searchUrl = `https://www.gutenberg.org/ebooks/search/?query=${encodeURIComponent(query)}&submit_search=Go`;
-    const response = await axios.get(searchUrl, { timeout: 10000 });
+    const response = await axios.get(searchUrl, {
+      timeout: 10000,
+      headers: {
+        "User-Agent": "QuoteResearchBot/1.0 (Educational Research Tool)",
+      },
+    });
     const $ = cheerio.load(response.data);
 
     $(".booklink").each((_, element) => {
