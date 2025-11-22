@@ -2,7 +2,7 @@
 
 ## Overview
 
-A comprehensive quote research and verification system that aggregates quotes from multiple sources (APIs, web scraping, religious texts), enriches them with AI-powered research, verifies their accuracy using advanced language models, and exports results to Google Sheets. The application provides real-time processing status, cost tracking, persistent status notifications, query history tracking with filtering, and a data-rich interface for managing quote collections.
+A comprehensive quote research and verification system that aggregates quotes from 14 different API sources (traditional quotes, religious texts, pop culture, philosophical wisdom, idioms/proverbs), enriches them with AI-powered research, verifies their accuracy using advanced language models, and exports results to Google Sheets. The application provides real-time processing status, cost tracking, persistent status notifications, query history tracking with filtering, source attribution display, and a data-rich interface for managing quote collections.
 
 ## User Preferences
 
@@ -115,12 +115,32 @@ Preferred communication style: Simple, everyday language.
   - Uses environment variables: `AI_INTEGRATIONS_GEMINI_API_KEY`, `AI_INTEGRATIONS_GEMINI_BASE_URL`
   - Structured output for reliable data parsing
 
-**Quote Data Sources**:
+**Quote Data Sources** (14 integrated adapters):
+
+**Traditional Quote APIs**:
 - **Quotable API**: Free public API for curated quotes with author/tag filtering
 - **FavQs API**: Community-driven quote collection with dialogue and tagging support
+
+**Religious & Sacred Texts**:
 - **Sefaria API**: Religious text database (Bible, Talmud, Quran) with reference tracking
-- **Wikiquote**: Web scraping for comprehensive quote collections
+
+**Philosophical Wisdom**:
+- **Type.fit Quotes**: Free inspirational quotes API with caching
+- **ZenQuotes**: Daily inspiration quotes (rate-limited: 5 requests/30 seconds)
+- **Affirmations.dev**: Positive affirmations and motivational quotes
+- **Philosophy.rest**: Philosopher quotes organized by philosophical school
+- **Philosophy API**: Philosophy quotes with book references (philosophyapi.pythonanywhere.com)
+- **Philosophers API**: Scholarly verified philosophical quotes (philosophersapi.com)
+
+**Idioms & Proverbs**:
+- **STANDS4 Phrases**: Idiom and proverb definitions with XML parsing (optional API key)
+
+**Web Scraping**:
+- **Wikiquote**: Comprehensive quote collections via web scraping
 - **Project Gutenberg**: Classic literature text extraction
+
+**Pop Culture Sources** (optional, require API keys):
+- TV Quotes API, Lyrics.ovh, Genius, Celebrity Lines, API Ninjas, Miller Center, Rev.com
 
 **Data Export**:
 - **Google Sheets API**: OAuth-based connector integration for quote export
