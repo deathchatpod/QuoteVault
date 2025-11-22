@@ -1,0 +1,334 @@
+import { useState, useEffect } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
+import { Quote, SearchQuery } from "@shared/schema";
+import { QuoteCard } from "@/components/quote-card";
+import { QuoteTable } from "@/components/quote-table";
+import { CostDashboard } from "@/components/cost-dashboard";
+import { ProcessingStatus } from "@/components/processing-status";
+import { GoogleSheetsStatus } from "@/components/google-sheets-status";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+
+export default function Home() {
+  const [query, setQuery] = useState("");
+  const [searchType, setSearchType] = useState<"topic" | "author" | "work">("topic");
+  const [maxQuotes, setMaxQuotes] = useState<number[]>([250]);
+  const [currentQueryId, setCurrentQueryId] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  const { data: quotes, isLoading: quotesLoading } = useQuery<Quote[]>({
+    queryKey: ["/api/quotes"],
+  });
+
+  const { data: currentQuery } = useQuery<SearchQuery>({
+    queryKey: currentQueryId ? [`/api/queries/${currentQueryId}`] : ["/api/queries/null"],
+    enabled: !!currentQueryId,
+    refetchInterval: (data) => {
+      return data?.status === "processing" || data?.status === "searching_apis" || data?.status === "web_scraping" || data?.status === "verifying" ? 2000 : false;
+    },
+  });
+
+  const searchMutation = useMutation({
+    mutationFn: async (data: { query: string; searchType: string; maxQuotes: number }) => {
+      const result = await apiRequest("POST", "/api/search", data);
+      return result;
+    },
+    onSuccess: (data) => {
+      setCurrentQueryId(data.queryId);
+      toast({
+        title: "Search started",
+        description: "Processing your quote research request...",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Search failed",
+        description: error.message || "Failed to start search",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const verifyMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", "/api/quotes/verify", {});
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      toast({
+        title: "Verification complete",
+        description: `Verified ${data.verified} of ${data.total} quotes (Cost: $${data.totalCost.toFixed(4)})`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Verification failed",
+        description: error.message || "Failed to verify quotes",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const exportMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", "/api/quotes/export", {});
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Export successful",
+        description: "Quotes exported to Google Sheets",
+      });
+      window.open(data.url, "_blank");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Export failed",
+        description: error.message || "Failed to export to Google Sheets",
+        variant: "destructive",
+      });
+    },
+  });
+
+  useEffect(() => {
+    if (currentQuery?.status === "completed") {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+    }
+  }, [currentQuery?.status]);
+
+  const handleSearch = async () => {
+    if (!query.trim()) return;
+    searchMutation.mutate({
+      query,
+      searchType,
+      maxQuotes: maxQuotes[0],
+    });
+  };
+
+  const isProcessing = currentQuery?.status === "processing" || currentQuery?.status === "searching_apis" || currentQuery?.status === "web_scraping" || currentQuery?.status === "verifying";
+  const hasQuotes = quotes && quotes.length > 0;
+
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b border-border bg-card px-6">
+        <div className="flex items-center gap-3">
+          <span className="material-icons text-primary text-3xl" aria-hidden="true">format_quote</span>
+          <h1 className="text-xl font-semibold text-foreground">Quote Research & Verification</h1>
+        </div>
+        <GoogleSheetsStatus />
+      </header>
+
+      <main className="mx-auto max-w-7xl px-6 py-8">
+        <Card className="mb-8 rounded-lg border-2">
+          <CardHeader className="p-6">
+            <CardTitle className="text-2xl font-bold text-foreground">Search for Quotes</CardTitle>
+            <CardDescription className="text-sm text-muted-foreground mt-2">
+              Find and verify quotes by topic, author, or work. Search across multiple sources including public APIs and web scraping.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-6 pt-0 space-y-6">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="search-query" className="text-sm font-medium text-foreground">
+                  Search Query
+                </Label>
+                <Input
+                  id="search-query"
+                  data-testid="input-search-query"
+                  placeholder="Enter a topic, author name, or work title..."
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  className="py-2 px-4 rounded-md border-2 text-base"
+                  disabled={isProcessing}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Examples: "love", "Shakespeare", "The Great Gatsby"
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="search-type" className="text-sm font-medium text-foreground">
+                  Search Type
+                </Label>
+                <Select value={searchType} onValueChange={(v) => setSearchType(v as any)} disabled={isProcessing}>
+                  <SelectTrigger id="search-type" data-testid="select-search-type" className="py-2 px-4 rounded-md border-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="topic" data-testid="option-topic">Topic</SelectItem>
+                    <SelectItem value="author" data-testid="option-author">Author</SelectItem>
+                    <SelectItem value="work" data-testid="option-work">Work</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Choose how to search for quotes
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="max-quotes" className="text-sm font-medium text-foreground">
+                    Maximum Quotes
+                  </Label>
+                  <Input
+                    type="number"
+                    data-testid="input-max-quotes-number"
+                    value={maxQuotes[0]}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 10;
+                      setMaxQuotes([Math.min(Math.max(val, 10), 1000)]);
+                    }}
+                    min={10}
+                    max={1000}
+                    disabled={isProcessing}
+                    className="w-24 text-center font-mono font-semibold"
+                  />
+                </div>
+                <Slider
+                  id="max-quotes"
+                  data-testid="slider-max-quotes"
+                  value={maxQuotes}
+                  onValueChange={setMaxQuotes}
+                  min={10}
+                  max={1000}
+                  step={10}
+                  disabled={isProcessing}
+                  className="py-2"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Up to 1,000 quotes per search
+                </p>
+              </div>
+            </div>
+
+            <Button
+              data-testid="button-start-search"
+              onClick={handleSearch}
+              disabled={!query.trim() || isProcessing || searchMutation.isPending}
+              size="lg"
+              className="w-full py-3 px-8 rounded-md font-semibold"
+            >
+              <span className="material-icons mr-2" aria-hidden="true">search</span>
+              {isProcessing || searchMutation.isPending ? "Processing..." : "Start Research"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {isProcessing && currentQuery && (
+          <>
+            <ProcessingStatus
+              queryId={currentQuery.id}
+              currentStage={currentQuery.status as any}
+              progress={
+                currentQuery.status === "processing" ? 10 :
+                currentQuery.status === "searching_apis" ? 25 :
+                currentQuery.status === "web_scraping" ? 50 :
+                currentQuery.status === "verifying" ? 75 : 10
+              }
+            />
+            <Separator className="my-8" />
+          </>
+        )}
+
+        {currentQuery?.status === "completed" && (
+          <>
+            <CostDashboard
+              totalCost={currentQuery.apiCost}
+              quotesFound={currentQuery.quotesFound}
+              quotesVerified={currentQuery.quotesVerified}
+              processingTime={currentQuery.processingTimeMs || 0}
+            />
+            <Separator className="my-8" />
+          </>
+        )}
+
+        {quotesLoading && (
+          <div className="space-y-6">
+            <Skeleton className="h-40 w-full rounded-lg" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Skeleton className="h-60 w-full rounded-lg" />
+              <Skeleton className="h-60 w-full rounded-lg" />
+              <Skeleton className="h-60 w-full rounded-lg" />
+              <Skeleton className="h-60 w-full rounded-lg" />
+            </div>
+          </div>
+        )}
+
+        {!quotesLoading && hasQuotes && (
+          <>
+            <div className="space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <h2 className="text-2xl font-bold text-foreground">Results</h2>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="button-export-sheets"
+                    onClick={() => exportMutation.mutate()}
+                    disabled={exportMutation.isPending}
+                  >
+                    <span className="material-icons mr-2 text-lg" aria-hidden="true">cloud_upload</span>
+                    {exportMutation.isPending ? "Exporting..." : "Export to Sheets"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="button-verify-all"
+                    onClick={() => verifyMutation.mutate()}
+                    disabled={verifyMutation.isPending}
+                  >
+                    <span className="material-icons mr-2 text-lg" aria-hidden="true">verified</span>
+                    {verifyMutation.isPending ? "Verifying..." : "Verify All"}
+                  </Button>
+                </div>
+              </div>
+
+              <Tabs defaultValue="cards" className="w-full">
+                <TabsList className="grid w-full max-w-md grid-cols-2">
+                  <TabsTrigger value="cards" data-testid="tab-cards">
+                    <span className="material-icons mr-2 text-sm" aria-hidden="true">view_module</span>
+                    Cards
+                  </TabsTrigger>
+                  <TabsTrigger value="table" data-testid="tab-table">
+                    <span className="material-icons mr-2 text-sm" aria-hidden="true">table_chart</span>
+                    Table
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="cards" className="mt-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {quotes.map((quote) => (
+                      <QuoteCard key={quote.id} quote={quote} />
+                    ))}
+                  </div>
+                </TabsContent>
+                <TabsContent value="table" className="mt-6">
+                  <QuoteTable quotes={quotes} />
+                </TabsContent>
+              </Tabs>
+            </div>
+          </>
+        )}
+
+        {!quotesLoading && !hasQuotes && !isProcessing && (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <span className="material-icons text-muted-foreground" style={{ fontSize: '80px' }} aria-hidden="true">
+              search
+            </span>
+            <h3 className="mt-6 text-xl font-semibold text-foreground">No quotes yet</h3>
+            <p className="mt-2 text-sm text-muted-foreground max-w-md">
+              Enter a search query above to find and verify quotes from multiple sources. Results will appear here after processing.
+            </p>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
