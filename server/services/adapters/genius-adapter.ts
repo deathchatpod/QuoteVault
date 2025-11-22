@@ -2,6 +2,7 @@ import type { IQuoteSourceAdapter } from "../quote-source-adapter";
 import { createNormalizedQuote } from "../quote-source-adapter";
 import type { InsertQuote } from "@shared/schema";
 import pRetry from "p-retry";
+import { config } from "../../config";
 
 interface GeniusSearchResponse {
   response: {
@@ -35,7 +36,7 @@ export class GeniusAdapter implements IQuoteSourceAdapter {
   private apiKey: string;
 
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.GENIUS_API_KEY || "";
+    this.apiKey = apiKey || config.externalApis.genius.apiKey || "";
     if (!this.apiKey) {
       console.warn("[GeniusAdapter] No API key provided - adapter will not function");
     }

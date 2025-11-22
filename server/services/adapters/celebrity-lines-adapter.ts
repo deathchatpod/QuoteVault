@@ -2,6 +2,7 @@ import type { IQuoteSourceAdapter } from "../quote-source-adapter";
 import { createNormalizedQuote } from "../quote-source-adapter";
 import type { InsertQuote } from "@shared/schema";
 import pRetry from "p-retry";
+import { config } from "../../config";
 
 interface CelebrityLineResponse {
   id: number;
@@ -28,7 +29,7 @@ export class CelebrityLinesAdapter implements IQuoteSourceAdapter {
   private apiKey: string;
 
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.CELEBRITY_LINES_API_KEY || "";
+    this.apiKey = apiKey || config.externalApis.celebrityLines.apiKey || "";
     if (!this.apiKey) {
       console.warn("[CelebrityLinesAdapter] No API key provided - adapter will not function");
     }

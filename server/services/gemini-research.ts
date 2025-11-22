@@ -2,12 +2,13 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import pLimit from "p-limit";
 import pRetry, { AbortError } from "p-retry";
+import { config } from "../config";
 
 const ai = new GoogleGenAI({
-  apiKey: process.env.AI_INTEGRATIONS_GEMINI_API_KEY!,
+  apiKey: config.ai.gemini.apiKey,
   httpOptions: {
     apiVersion: "",
-    baseUrl: process.env.AI_INTEGRATIONS_GEMINI_BASE_URL!,
+    baseUrl: config.ai.gemini.baseUrl,
   },
 });
 

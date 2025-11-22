@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import pLimit from "p-limit";
 import { storage } from "./storage";
 import { searchFormSchema, insertQuoteSchema } from "@shared/schema";
 import { searchQuotableAPI } from "./services/quotable-api";
@@ -431,6 +432,9 @@ async function processSearch(
       // Stage 3: Verification and deduplication
       await storage.updateSearchQuery(queryId, { status: "verifying" });
 
+      // First pass: Check duplicates and create quotes (sequential to avoid race conditions)
+      const quotesToVerify: Array<{ id: string; quote: string; speaker: string | null; author: string | null; work: string | null; year: string | null }> = [];
+
       for (const aiQuote of aiQuotes) {
         if (quotesFound >= maxQuotes) break;
 
@@ -463,29 +467,45 @@ async function processSearch(
             sources: ["ai-extraction"],
           });
 
-          // Verify the quote
-          const { result, cost } = await verifyQuote(
-            newQuote.quote,
-            newQuote.speaker,
-            newQuote.author,
-            newQuote.work,
-            newQuote.year
-          );
-          totalCost += cost;
+          quotesToVerify.push(newQuote);
+          quotesFound++;
+        }
+      }
 
-          await storage.updateQuote(newQuote.id, {
-            verified: result.verified,
-            sourceConfidence: result.sourceConfidence,
-            speaker: result.corrections.speaker || newQuote.speaker,
-            author: result.corrections.author || newQuote.author,
-            work: result.corrections.work || newQuote.work,
-            year: result.corrections.year || newQuote.year,
-          });
+      // Second pass: Verify quotes concurrently (5 at a time)
+      if (quotesToVerify.length > 0) {
+        const limit = pLimit(5);
+        const verificationPromises = quotesToVerify.map((quote) =>
+          limit(async () => {
+            const { result, cost } = await verifyQuote(
+              quote.quote,
+              quote.speaker,
+              quote.author,
+              quote.work,
+              quote.year
+            );
 
+            await storage.updateQuote(quote.id, {
+              verified: result.verified,
+              sourceConfidence: result.sourceConfidence,
+              speaker: result.corrections.speaker || quote.speaker,
+              author: result.corrections.author || quote.author,
+              work: result.corrections.work || quote.work,
+              year: result.corrections.year || quote.year,
+            });
+
+            return { verified: result.verified, cost };
+          })
+        );
+
+        const verificationResults = await Promise.all(verificationPromises);
+        
+        // Aggregate results
+        for (const result of verificationResults) {
           if (result.verified) {
             quotesVerified++;
           }
-          quotesFound++;
+          totalCost += result.cost;
         }
       }
     }

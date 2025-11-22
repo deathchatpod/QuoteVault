@@ -1,6 +1,7 @@
 // Based on google-sheet connector integration
 import { google } from 'googleapis';
 import { Quote } from "@shared/schema";
+import { config } from "../config";
 
 let connectionSettings: any;
 
@@ -9,11 +10,11 @@ async function getAccessToken() {
     return connectionSettings.settings.access_token;
   }
   
-  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  const xReplitToken = process.env.REPL_IDENTITY 
-    ? 'repl ' + process.env.REPL_IDENTITY 
-    : process.env.WEB_REPL_RENEWAL 
-    ? 'depl ' + process.env.WEB_REPL_RENEWAL 
+  const hostname = config.replit.connectors.hostname;
+  const xReplitToken = config.replit.identity 
+    ? 'repl ' + config.replit.identity 
+    : config.replit.renewal 
+    ? 'depl ' + config.replit.renewal 
     : null;
 
   if (!xReplitToken) {

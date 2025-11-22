@@ -2,10 +2,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import pLimit from "p-limit";
 import pRetry, { AbortError } from "p-retry";
+import { config } from "../config";
 
 const anthropic = new Anthropic({
-  apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY!,
-  baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL!,
+  apiKey: config.ai.anthropic.apiKey,
+  baseURL: config.ai.anthropic.baseUrl,
 });
 
 interface VerificationResult {

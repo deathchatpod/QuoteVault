@@ -2,6 +2,7 @@ import type { IQuoteSourceAdapter } from "../quote-source-adapter";
 import { createNormalizedQuote } from "../quote-source-adapter";
 import type { InsertQuote } from "@shared/schema";
 import pRetry from "p-retry";
+import { config } from "../../config";
 
 interface APINinjasQuoteResponse {
   quote: string;
@@ -26,7 +27,7 @@ export class APINinjasQuotesAdapter implements IQuoteSourceAdapter {
   private apiKey: string;
 
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.API_NINJAS_API_KEY || "";
+    this.apiKey = apiKey || config.externalApis.apiNinjas.apiKey || "";
     if (!this.apiKey) {
       console.warn("[APINinjasQuotesAdapter] No API key provided - adapter will not function");
     }

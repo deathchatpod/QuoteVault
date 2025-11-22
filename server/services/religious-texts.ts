@@ -1,4 +1,5 @@
 import axios from "axios";
+import { config } from "../config";
 
 const USER_AGENT = "QuoteResearchBot/1.0 (Educational Research Tool)";
 
@@ -106,7 +107,7 @@ export async function fetchHadith(
       timeout: 10000,
       headers: { 
         "User-Agent": USER_AGENT,
-        "X-API-Key": process.env.SUNNAH_API_KEY || "",
+        "X-API-Key": config.externalApis.sunnah.apiKey || "",
       },
     });
     
