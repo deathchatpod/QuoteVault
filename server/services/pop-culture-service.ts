@@ -10,6 +10,13 @@ import { CelebrityLinesAdapter } from "./adapters/celebrity-lines-adapter";
 import { APINinjasQuotesAdapter } from "./adapters/api-ninjas-quotes-adapter";
 import { MillerCenterAdapter } from "./adapters/miller-center-adapter";
 import { RevComAdapter } from "./adapters/rev-com-adapter";
+import { TypefitAdapter } from "./adapters/typefit-adapter";
+import { ZenQuotesAdapter } from "./adapters/zenquotes-adapter";
+import { AffirmationsDevAdapter } from "./adapters/affirmations-dev-adapter";
+import { PhilosophyRestAdapter } from "./adapters/philosophy-rest-adapter";
+import { PhilosophyApiAdapter } from "./adapters/philosophy-api-adapter";
+import { PhilosophersApiAdapter } from "./adapters/philosophers-api-adapter";
+import { Stands4PhrasesAdapter } from "./adapters/stands4-phrases-adapter";
 
 // Initialize and register all pop culture adapters
 export function initializePopCultureAdapters() {
@@ -21,6 +28,13 @@ export function initializePopCultureAdapters() {
     new APINinjasQuotesAdapter(),
     new MillerCenterAdapter(),
     new RevComAdapter(),
+    new TypefitAdapter(),
+    new ZenQuotesAdapter(),
+    new AffirmationsDevAdapter(),
+    new PhilosophyRestAdapter(),
+    new PhilosophyApiAdapter(),
+    new PhilosophersApiAdapter(),
+    new Stands4PhrasesAdapter(), // No API key by default - will skip if not configured
   ];
 
   for (const adapter of adapters) {
