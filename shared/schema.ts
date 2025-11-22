@@ -3,6 +3,20 @@ import { pgTable, text, varchar, timestamp, integer, boolean, jsonb, real } from
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Quote type classification for pop culture and traditional sources
+export const quoteTypes = [
+  "literature",
+  "religious",
+  "speech",
+  "dialogue",
+  "tv",
+  "movie",
+  "music",
+  "political-speech",
+  "celebrity",
+  "other"
+] as const;
+
 export const quotes = pgTable("quotes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   quote: text("quote").notNull(),

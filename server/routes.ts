@@ -10,6 +10,10 @@ import { fetchBhagavadGita, fetchDhammapada, fetchHadith, fetchBuddhistSutras } 
 import { extractQuotesWithAI, enrichQuoteData } from "./services/gemini-research";
 import { verifyQuote, batchVerifyQuotes } from "./services/anthropic-verify";
 import { exportQuotesToGoogleSheets } from "./services/google-sheets";
+import { initializePopCultureAdapters } from "./services/pop-culture-service";
+
+// Initialize pop culture adapters on module load
+initializePopCultureAdapters();
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/quotes - Get all quotes
@@ -347,16 +351,27 @@ async function processSearch(
   let quotesVerified = 0;
 
   try {
-    // Stage 1: Search APIs
+    // Stage 1: Search APIs (traditional + pop culture)
     await storage.updateSearchQuery(queryId, { status: "searching_apis" });
 
+    const { searchPopCultureQuotes } = await import("./services/pop-culture-service");
+    const popCulturePromise = searchPopCultureQuotes(query, searchType, Math.min(maxQuotes, 10));
+
     const apiResults = await Promise.all([
+      popCulturePromise,
       searchQuotableAPI(query, searchType, Math.floor(maxQuotes * 0.3)),
       searchFavQsAPI(query, searchType, Math.floor(maxQuotes * 0.2)),
       searchSefariaAPI(query, searchType, Math.floor(maxQuotes * 0.2)),
     ]);
 
-    const apiQuotes = apiResults.flat();
+    // Extract pop culture results and track cost
+    const popCultureResults = apiResults[0];
+    totalCost += popCultureResults.totalCost;
+    
+    const apiQuotes = [
+      ...popCultureResults.quotes,
+      ...apiResults.slice(1).flat()
+    ];
 
     // Stage 2: Web Scraping
     await storage.updateSearchQuery(queryId, { status: "web_scraping" });
@@ -374,12 +389,31 @@ async function processSearch(
 
     const scrapedQuotes = scrapingResults.flat();
 
-    // Combine all results
-    const allRawQuotes = [...apiQuotes, ...scrapedQuotes];
+    // Separate structured pop culture quotes from raw quotes needing AI processing
+    const structuredQuotes = apiQuotes.filter(q => 
+      q.sources?.some(s => ['tv-quotes-api', 'lyrics-ovh', 'genius', 'celebrity-lines', 'api-ninjas-quotes', 'miller-center', 'rev-com'].includes(s))
+    );
+    
+    const rawQuotes = [
+      ...apiQuotes.filter(q => !structuredQuotes.includes(q)),
+      ...scrapedQuotes
+    ];
 
-    // Use AI to extract and enhance quote data
-    if (allRawQuotes.length > 0) {
-      const combinedText = allRawQuotes
+    // Process structured pop culture quotes directly (skip AI extraction)
+    for (const popQuote of structuredQuotes) {
+      if (quotesFound >= maxQuotes) break;
+      
+      const duplicate = await storage.findDuplicateQuote(popQuote.quote);
+      
+      if (!duplicate) {
+        await storage.createQuote(popQuote);
+        quotesFound++;
+      }
+    }
+
+    // Use AI to extract and enhance raw quote data
+    if (rawQuotes.length > 0) {
+      const combinedText = rawQuotes
         .map((q) => `"${q.quote}" - ${q.speaker || q.author || "Unknown"}`)
         .join("\n");
 
