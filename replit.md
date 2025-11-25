@@ -78,7 +78,15 @@ Preferred communication style: Simple, everyday language.
 - Core fields: quote text, speaker, author, work, year, type
 - Verification metadata: verified status, source confidence level
 - Source tracking: JSON array of source identifiers
+- Religious classification: isReligious (boolean), religion (varchar) - auto-set based on source
 - Timestamps for creation tracking
+
+**Source-to-Religion Mapping** (automatic classification):
+- sefaria-api → Judaism
+- bhagavad-gita → Hinduism
+- dhammapada → Buddhism
+- hadith-bukhari → Islam
+- buddhist-sutras → Buddhism
 
 **Search Queries Table**:
 - Query tracking: search terms, type (topic/author/work), max quotes limit
