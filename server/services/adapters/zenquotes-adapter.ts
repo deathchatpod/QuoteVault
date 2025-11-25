@@ -7,29 +7,51 @@ interface ZenQuote {
   q: string; // quote text
   a: string; // author
   h: string; // HTML formatted
+  c?: string; // character count (premium)
+  i?: string; // image URL (premium)
 }
 
 /**
  * Adapter for ZenQuotes API
- * Provides inspirational quotes with rate limiting
+ * Supports both free tier (rate limited) and premium tier (unlimited)
  * Free tier: 5 requests per 30 seconds
+ * Premium tier: Unlimited requests, author filtering, keyword search
  */
 export class ZenQuotesAdapter implements IQuoteSourceAdapter {
   name = "zenquotes";
   domain = "inspiration";
   requiresAuth = false;
   costPerCall = 0;
-  rateLimit = 10; // 5 per 30 seconds = 10 per minute
+  rateLimit = 60; // Premium allows unlimited, but we'll be reasonable
 
   private baseUrl = "https://zenquotes.io/api";
+  private apiKey: string | null = null;
   private lastRequestTime = 0;
   private requestCount = 0;
   private readonly rateLimitWindow = 30000; // 30 seconds in ms
-  private readonly maxRequestsPerWindow = 5;
+  private readonly maxRequestsPerWindow = 5; // Free tier limit
+
+  constructor() {
+    this.apiKey = process.env.ZENQUOTES_API_KEY || null;
+    if (this.apiKey) {
+      console.log("[ZenQuotesAdapter] Premium API key configured - unlimited requests enabled");
+      this.requiresAuth = true;
+    }
+  }
 
   async search(query: string, searchType: "topic" | "author" | "work", maxResults: number): Promise<InsertQuote[]> {
     try {
-      // Get random quotes and filter (API doesn't support search)
+      // Premium tier supports author search directly
+      if (this.apiKey && searchType === "author") {
+        return await this.searchByAuthor(query, maxResults);
+      }
+      
+      // Premium tier supports keyword search
+      if (this.apiKey && searchType === "topic") {
+        return await this.searchByKeyword(query, maxResults);
+      }
+
+      // Free tier: Get random quotes and filter locally
       const quotes = await this.getQuotes(Math.min(maxResults * 2, 50));
       
       const filtered = quotes.filter(q => {
@@ -51,6 +73,63 @@ export class ZenQuotesAdapter implements IQuoteSourceAdapter {
     }
   }
 
+  private async searchByAuthor(author: string, maxResults: number): Promise<InsertQuote[]> {
+    if (!this.apiKey) return [];
+    
+    try {
+      const url = `${this.baseUrl}/quotes/author/${encodeURIComponent(author)}?key=${this.apiKey}`;
+      const response = await pRetry(
+        async () => {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`ZenQuotes API returned ${res.status}`);
+          return res.json();
+        },
+        { retries: 2, minTimeout: 1000 }
+      );
+
+      const data = response as ZenQuote[];
+      return data.slice(0, maxResults).map(q => this.normalizeQuote(q));
+    } catch (error: any) {
+      console.error(`[ZenQuotesAdapter] Author search error:`, error.message);
+      return [];
+    }
+  }
+
+  private async searchByKeyword(keyword: string, maxResults: number): Promise<InsertQuote[]> {
+    if (!this.apiKey) return [];
+    
+    try {
+      const url = `${this.baseUrl}/quotes/keyword/${encodeURIComponent(keyword)}?key=${this.apiKey}`;
+      const response = await pRetry(
+        async () => {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`ZenQuotes API returned ${res.status}`);
+          return res.json();
+        },
+        { retries: 2, minTimeout: 1000 }
+      );
+
+      const data = response as ZenQuote[];
+      return data.slice(0, maxResults).map(q => this.normalizeQuote(q));
+    } catch (error: any) {
+      console.error(`[ZenQuotesAdapter] Keyword search error:`, error.message);
+      return [];
+    }
+  }
+
+  private normalizeQuote(q: ZenQuote): InsertQuote {
+    return createNormalizedQuote({
+      text: q.q,
+      speaker: null,
+      author: q.a !== "zenquotes.io" ? q.a : null,
+      work: null,
+      type: "inspiration",
+      source: "zenquotes",
+      verified: false,
+      sourceConfidence: "high",
+    });
+  }
+
   async getRandom(count: number): Promise<InsertQuote[]> {
     try {
       return await this.getQuotes(Math.min(count, 50));
@@ -61,12 +140,21 @@ export class ZenQuotesAdapter implements IQuoteSourceAdapter {
   }
 
   private async getQuotes(count: number): Promise<InsertQuote[]> {
-    await this.enforceRateLimit();
+    // Only enforce rate limit if no API key (free tier)
+    if (!this.apiKey) {
+      await this.enforceRateLimit();
+    }
 
     try {
+      // Build URL with optional API key
+      let url = `${this.baseUrl}/quotes`;
+      if (this.apiKey) {
+        url += `?key=${this.apiKey}`;
+      }
+
       const response = await pRetry(
         async () => {
-          const res = await fetch(`${this.baseUrl}/quotes`);
+          const res = await fetch(url);
           if (!res.ok) {
             throw new Error(`ZenQuotes API returned ${res.status}`);
           }
@@ -82,16 +170,7 @@ export class ZenQuotesAdapter implements IQuoteSourceAdapter {
       
       return data
         .slice(0, count)
-        .map(q => createNormalizedQuote({
-          text: q.q,
-          speaker: null,
-          author: q.a !== "zenquotes.io" ? q.a : null,
-          work: null,
-          type: "inspiration",
-          source: "zenquotes",
-          verified: false,
-          sourceConfidence: "high",
-        }));
+        .map(q => this.normalizeQuote(q));
     } catch (error) {
       console.error(`[ZenQuotesAdapter] Fetch error:`, error);
       return [];

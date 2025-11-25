@@ -17,10 +17,29 @@ import { PhilosophyRestAdapter } from "./adapters/philosophy-rest-adapter";
 import { PhilosophyApiAdapter } from "./adapters/philosophy-api-adapter";
 import { PhilosophersApiAdapter } from "./adapters/philosophers-api-adapter";
 import { Stands4PhrasesAdapter } from "./adapters/stands4-phrases-adapter";
+import { AdviceSlipAdapter } from "./adapters/advice-slip-adapter";
+import { MotivationalSparkAdapter } from "./adapters/motivational-spark-adapter";
+import { IndianQuotesAdapter } from "./adapters/indian-quotes-adapter";
+import { ReciteAdapter } from "./adapters/recite-adapter";
+import { PoetryDBAdapter } from "./adapters/poetrydb-adapter";
 
 // Initialize and register all pop culture adapters
 export function initializePopCultureAdapters() {
   const adapters = [
+    // Free, reliable adapters
+    new TypefitAdapter(),
+    new ZenQuotesAdapter(),
+    new AffirmationsDevAdapter(),
+    new PhilosophersApiAdapter(),
+    new PhilosophyApiAdapter(),
+    new AdviceSlipAdapter(),
+    new MotivationalSparkAdapter(),
+    new IndianQuotesAdapter(),
+    new ReciteAdapter(),
+    new PoetryDBAdapter(),
+    // Adapters that may have issues or require keys
+    new PhilosophyRestAdapter(), // May return 410
+    new Stands4PhrasesAdapter(), // No API key by default
     new TVQuotesAdapter(),
     new LyricsOvhAdapter(),
     new GeniusAdapter(),
@@ -28,13 +47,6 @@ export function initializePopCultureAdapters() {
     new APINinjasQuotesAdapter(),
     new MillerCenterAdapter(),
     new RevComAdapter(),
-    new TypefitAdapter(),
-    new ZenQuotesAdapter(),
-    new AffirmationsDevAdapter(),
-    new PhilosophyRestAdapter(),
-    new PhilosophyApiAdapter(),
-    new PhilosophersApiAdapter(),
-    new Stands4PhrasesAdapter(), // No API key by default - will skip if not configured
   ];
 
   for (const adapter of adapters) {

@@ -123,6 +123,28 @@ export default function Home() {
     },
   });
 
+  const dumpAllMutation = useMutation({
+    mutationFn: async (maxPerSource: number = 50) => {
+      const result = await apiRequest("POST", "/api/dump-all", { maxPerSource });
+      return result as unknown as { queryId: string; message: string };
+    },
+    onSuccess: (data) => {
+      setCurrentQueryId(data.queryId);
+      queryClient.invalidateQueries({ queryKey: ["/api/queries"] });
+      toast({
+        title: "Dump All Started",
+        description: data.message,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Dump All Failed",
+        description: error.message || "Failed to dump all sources",
+        variant: "destructive",
+      });
+    },
+  });
+
   const isProcessing = (currentQueryId && !currentQuery) || currentQuery?.status === "processing" || currentQuery?.status === "searching_apis" || currentQuery?.status === "web_scraping" || currentQuery?.status === "verifying";
   const hasQuotes = quotes && quotes.length > 0;
   
@@ -428,6 +450,16 @@ export default function Home() {
                   >
                     <span className="material-icons mr-2 text-lg" aria-hidden="true">verified</span>
                     {verifyMutation.isPending ? "Verifying..." : "Verify All"}
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    data-testid="button-dump-all"
+                    onClick={() => dumpAllMutation.mutate(50)}
+                    disabled={dumpAllMutation.isPending || isProcessing}
+                  >
+                    <span className="material-icons mr-2 text-lg" aria-hidden="true">download</span>
+                    {dumpAllMutation.isPending ? "Dumping..." : "Dump All Sources"}
                   </Button>
                 </div>
               </div>

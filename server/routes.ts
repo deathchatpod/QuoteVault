@@ -184,6 +184,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/dump-all - Fetch ALL quotes from ALL active APIs at once
+  app.post("/api/dump-all", async (req, res) => {
+    try {
+      const { maxPerSource = 50 } = req.body;
+      const startTime = Date.now();
+
+      // Create a search query to track this dump
+      const searchQuery = await storage.createSearchQuery({
+        query: "[DUMP ALL SOURCES]",
+        searchType: "topic",
+        maxQuotes: maxPerSource * 20, // Estimate
+        status: "processing",
+        quotesFound: 0,
+        quotesVerified: 0,
+        apiCost: 0,
+      });
+
+      // Run dump asynchronously
+      dumpAllSources(searchQuery.id, maxPerSource).catch(console.error);
+
+      res.json({ 
+        queryId: searchQuery.id, 
+        status: "processing",
+        message: "Dumping all quotes from all active sources. This may take a few minutes." 
+      });
+    } catch (error: any) {
+      console.error("Dump all error:", error);
+      res.status(500).json({ error: error.message || "Dump all failed" });
+    }
+  });
+
   // POST /api/export-filtered - Export quotes with filters
   app.post("/api/export-filtered", async (req, res) => {
     try {
@@ -365,20 +396,23 @@ async function processSearch(
     const { searchPopCultureQuotes } = await import("./services/pop-culture-service");
     const popCulturePromise = searchPopCultureQuotes(query, searchType, Math.min(maxQuotes, 10));
 
-    const apiResults = await Promise.all([
-      popCulturePromise,
+    // Fetch from pop culture adapters
+    const popCultureResults = await popCulturePromise;
+    totalCost += popCultureResults.totalCost;
+
+    // Fetch from traditional APIs
+    const [quotableQuotes, favqsQuotes, sefariaQuotes] = await Promise.all([
       searchQuotableAPI(query, searchType, Math.floor(maxQuotes * 0.3)),
       searchFavQsAPI(query, searchType, Math.floor(maxQuotes * 0.2)),
       searchSefariaAPI(query, searchType, Math.floor(maxQuotes * 0.2)),
     ]);
 
-    // Extract pop culture results and track cost
-    const popCultureResults = apiResults[0];
-    totalCost += popCultureResults.totalCost;
-    
+    // Combine all API quotes
     const apiQuotes = [
       ...popCultureResults.quotes,
-      ...apiResults.slice(1).flat()
+      ...quotableQuotes,
+      ...favqsQuotes,
+      ...sefariaQuotes,
     ];
 
     // Stage 2: Web Scraping
@@ -397,12 +431,21 @@ async function processSearch(
 
     const scrapedQuotes = scrapingResults.flat();
 
+    // All known adapter sources that should skip AI extraction
+    const structuredSources = [
+      // Original adapters
+      'tv-quotes-api', 'lyrics-ovh', 'genius', 'celebrity-lines', 'api-ninjas-quotes', 'miller-center', 'rev-com',
+      // Wisdom/philosophy adapters
+      'typefit', 'zenquotes', 'affirmations-dev', 'philosophy-rest', 'philosophy-api', 'philosophers-api', 'stands4-phrases',
+      // New adapters
+      'advice-slip', 'motivational-spark', 'indian-quotes', 'recite', 'poetrydb',
+      // Core APIs
+      'quotable', 'favqs', 'sefaria'
+    ];
+    
     // Separate structured pop culture quotes from raw quotes needing AI processing
     const structuredQuotes = apiQuotes.filter(q => 
-      q.sources?.some(s => [
-        'tv-quotes-api', 'lyrics-ovh', 'genius', 'celebrity-lines', 'api-ninjas-quotes', 'miller-center', 'rev-com',
-        'typefit', 'zenquotes', 'affirmations-dev', 'philosophy-rest', 'philosophy-api', 'philosophers-api', 'stands4-phrases'
-      ].includes(s))
+      q.sources?.some((s: string) => structuredSources.includes(s))
     );
     
     const rawQuotes = [
@@ -541,6 +584,133 @@ async function processSearch(
     console.log(`[Search] Query ${queryId} completed successfully`);
   } catch (error) {
     console.error("Processing error:", error);
+    await storage.updateSearchQuery(queryId, { status: "failed" });
+  }
+}
+
+// Background function to dump ALL quotes from ALL sources
+async function dumpAllSources(queryId: string, maxPerSource: number) {
+  const startTime = Date.now();
+  let totalCost = 0;
+  let quotesFound = 0;
+
+  try {
+    console.log(`[DumpAll] Starting dump of all sources, max ${maxPerSource} per source`);
+    await storage.updateSearchQuery(queryId, { status: "searching_apis" });
+
+    // Import the service and registry
+    const { quoteSourceRegistry } = await import("./services/quote-source-adapter");
+    const { getRandomPopCultureQuotes } = await import("./services/pop-culture-service");
+
+    // Get random quotes from all pop culture adapters
+    console.log(`[DumpAll] Fetching from pop culture adapters...`);
+    const popCultureResult = await getRandomPopCultureQuotes(maxPerSource * 10);
+    totalCost += popCultureResult.totalCost;
+
+    // Process pop culture quotes
+    for (const quote of popCultureResult.quotes) {
+      try {
+        const duplicate = await storage.findDuplicateQuote(quote.quote);
+        
+        if (!duplicate) {
+          const created = await storage.createQuote(quote);
+          await storage.linkQuoteToQuery(created.id, queryId);
+          quotesFound++;
+          console.log(`[DumpAll] Created: "${created.quote.substring(0, 40)}..." from ${created.sources}`);
+        } else {
+          await storage.linkQuoteToQuery(duplicate.id, queryId);
+        }
+      } catch (err: any) {
+        console.error(`[DumpAll] Error processing quote:`, err.message);
+      }
+    }
+
+    // Also fetch from traditional APIs
+    await storage.updateSearchQuery(queryId, { status: "web_scraping" });
+    
+    console.log(`[DumpAll] Fetching from traditional APIs...`);
+    
+    // Quotable API - get random quotes
+    try {
+      const quotableQuotes = await searchQuotableAPI("life", "topic", maxPerSource);
+      for (const quote of quotableQuotes) {
+        try {
+          const duplicate = await storage.findDuplicateQuote(quote.quote);
+          if (!duplicate) {
+            const created = await storage.createQuote(quote);
+            await storage.linkQuoteToQuery(created.id, queryId);
+            quotesFound++;
+          } else {
+            await storage.linkQuoteToQuery(duplicate.id, queryId);
+          }
+        } catch (err: any) {
+          console.error(`[DumpAll] Error with Quotable quote:`, err.message);
+        }
+      }
+      console.log(`[DumpAll] Quotable: Added ${quotableQuotes.length} quotes`);
+    } catch (err: any) {
+      console.error(`[DumpAll] Quotable error:`, err.message);
+    }
+
+    // FavQs API
+    try {
+      const favqsQuotes = await searchFavQsAPI("inspiration", "topic", maxPerSource);
+      for (const quote of favqsQuotes) {
+        try {
+          const duplicate = await storage.findDuplicateQuote(quote.quote);
+          if (!duplicate) {
+            const created = await storage.createQuote(quote);
+            await storage.linkQuoteToQuery(created.id, queryId);
+            quotesFound++;
+          } else {
+            await storage.linkQuoteToQuery(duplicate.id, queryId);
+          }
+        } catch (err: any) {
+          console.error(`[DumpAll] Error with FavQs quote:`, err.message);
+        }
+      }
+      console.log(`[DumpAll] FavQs: Added ${favqsQuotes.length} quotes`);
+    } catch (err: any) {
+      console.error(`[DumpAll] FavQs error:`, err.message);
+    }
+
+    // Sefaria API
+    try {
+      const sefariaQuotes = await searchSefariaAPI("wisdom", "topic", maxPerSource);
+      for (const quote of sefariaQuotes) {
+        try {
+          const duplicate = await storage.findDuplicateQuote(quote.quote);
+          if (!duplicate) {
+            const created = await storage.createQuote(quote);
+            await storage.linkQuoteToQuery(created.id, queryId);
+            quotesFound++;
+          } else {
+            await storage.linkQuoteToQuery(duplicate.id, queryId);
+          }
+        } catch (err: any) {
+          console.error(`[DumpAll] Error with Sefaria quote:`, err.message);
+        }
+      }
+      console.log(`[DumpAll] Sefaria: Added ${sefariaQuotes.length} quotes`);
+    } catch (err: any) {
+      console.error(`[DumpAll] Sefaria error:`, err.message);
+    }
+
+    // Complete the dump query
+    const processingTime = Date.now() - startTime;
+    console.log(`[DumpAll] Completed: found=${quotesFound}, cost=$${totalCost.toFixed(4)}, time=${processingTime}ms`);
+    
+    await storage.completeSearchQuery(
+      queryId,
+      quotesFound,
+      0, // No verification in dump mode
+      totalCost,
+      processingTime
+    );
+    
+    console.log(`[DumpAll] Query ${queryId} completed successfully`);
+  } catch (error) {
+    console.error("[DumpAll] Error:", error);
     await storage.updateSearchQuery(queryId, { status: "failed" });
   }
 }
