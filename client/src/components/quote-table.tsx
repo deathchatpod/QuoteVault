@@ -37,6 +37,8 @@ export function QuoteTable({ quotes }: QuoteTableProps) {
             <TableHead className="font-medium">Work</TableHead>
             <TableHead className="font-medium">Year</TableHead>
             <TableHead className="font-medium">Sources</TableHead>
+            <TableHead className="font-medium text-center">Religious</TableHead>
+            <TableHead className="font-medium">Religion</TableHead>
             <TableHead className="font-medium text-center">Verified</TableHead>
             <TableHead className="font-medium text-center">Actions</TableHead>
           </TableRow>
@@ -95,6 +97,16 @@ export function QuoteTable({ quotes }: QuoteTableProps) {
                   ) : (
                     "—"
                   )}
+                </TableCell>
+                <TableCell className="text-center" data-testid={`cell-religious-${quote.id}`}>
+                  {quote.isReligious ? (
+                    <Badge variant="default" className="text-xs">Y</Badge>
+                  ) : (
+                    <span className="text-muted-foreground text-xs">N</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground" data-testid={`cell-religion-${quote.id}`}>
+                  {quote.religion || "—"}
                 </TableCell>
                 <TableCell className="text-center">
                   {quote.verified ? (

@@ -1,4 +1,5 @@
 import type { InsertQuote } from "@shared/schema";
+import { sourceReligionMap } from "@shared/schema";
 
 /**
  * Interface for quote source adapters
@@ -82,6 +83,7 @@ export const quoteSourceRegistry = new QuoteSourceRegistry();
 
 /**
  * Helper to normalize quote data from different sources
+ * Automatically sets isReligious and religion based on source
  */
 export function createNormalizedQuote(params: {
   text: string;
@@ -95,6 +97,10 @@ export function createNormalizedQuote(params: {
   verified?: boolean;
   sourceConfidence?: "high" | "medium" | "low";
 }): InsertQuote {
+  // Auto-detect religious content based on source
+  const religion = sourceReligionMap[params.source] || null;
+  const isReligious = religion !== null;
+
   return {
     quote: params.text,
     speaker: params.speaker || null,
@@ -107,5 +113,7 @@ export function createNormalizedQuote(params: {
     sources: [params.source],
     sourceConfidence: params.sourceConfidence || "medium",
     confidenceScore: 0.5,
+    isReligious,
+    religion,
   };
 }

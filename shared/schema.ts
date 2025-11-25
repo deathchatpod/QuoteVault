@@ -17,6 +17,15 @@ export const quoteTypes = [
   "other"
 ] as const;
 
+// Source-to-religion mapping for automatic classification
+export const sourceReligionMap: Record<string, string> = {
+  "sefaria-api": "Judaism",
+  "bhagavad-gita": "Hinduism",
+  "dhammapada": "Buddhism",
+  "hadith-bukhari": "Islam",
+  "buddhist-sutras": "Buddhism",
+};
+
 export const quotes = pgTable("quotes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   quote: text("quote").notNull(),
@@ -30,6 +39,8 @@ export const quotes = pgTable("quotes", {
   confidenceScore: real("confidence_score").default(0.5),
   reference: text("reference"),
   sources: jsonb("sources").$type<string[]>().default(sql`'[]'::jsonb`),
+  isReligious: boolean("is_religious").default(false).notNull(),
+  religion: varchar("religion", { length: 50 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
