@@ -2,7 +2,7 @@
 
 ## Overview
 
-A comprehensive quote research and verification system that aggregates quotes from 19 different API sources (traditional quotes, religious texts, pop culture, philosophical wisdom, idioms/proverbs, literary, motivational, and business quotes), enriches them with AI-powered research, verifies their accuracy using advanced language models, and exports results to Google Sheets. The application provides real-time processing status, cost tracking, persistent status notifications, query history tracking with filtering, source attribution display, "Dump All Sources" functionality for bulk collection, and a data-rich interface for managing quote collections.
+A comprehensive quote research and verification system that aggregates quotes from 24+ different sources including API adapters, quote site scrapers, and search engine integrations. The system enriches quotes with AI-powered research, verifies their accuracy using advanced language models, and exports results to Google Sheets. The application provides real-time processing status, cost tracking, persistent status notifications, query history tracking with filtering, source attribution display, "Dump All Sources" functionality for bulk collection, and a data-rich interface for managing quote collections.
 
 ## User Preferences
 
@@ -155,9 +155,25 @@ Preferred communication style: Simple, everyday language.
 **Idioms & Proverbs**:
 - **STANDS4 Phrases**: Idiom and proverb definitions with XML parsing (optional API key)
 
-**Web Scraping**:
+**Web Scraping - Quote Sites**:
 - **Wikiquote**: Comprehensive quote collections via web scraping
 - **Project Gutenberg**: Classic literature text extraction
+- **BrainyQuote**: Popular quote site with structured data extraction
+- **Goodreads Quotes**: Literature-focused quotes from book readers
+- **AZQuotes**: Large general quote collection with categories
+- **QuoteGarden**: Clean quote API-like scraping source
+- **QuotationsPage**: Classic quote collection with author attribution
+
+**Search Engine Integration** (optional, require API keys):
+- **Google Custom Search**: Searches entire web for quote-related content (GOOGLE_CUSTOM_SEARCH_API_KEY, GOOGLE_CUSTOM_SEARCH_ENGINE_ID)
+- **Bing Web Search**: Alternative web search for broader coverage (BING_SEARCH_API_KEY)
+- **Generic Web Scraper**: Extracts quotes from arbitrary URLs found by search engines, with concurrency control (3 concurrent, 200ms delays)
+
+**Intelligent Query Generator** (`server/services/query-generator.ts`):
+- Expands search terms with synonyms (courage → bravery, fortitude)
+- Adds quote-specific keywords ("quotes about", "quotations on")
+- Generates author/work variations for targeted searches
+- Creates site-specific queries for known quote sources
 
 **Pop Culture Sources** (optional, require API keys):
 - TV Quotes API, Lyrics.ovh, Genius, Celebrity Lines, API Ninjas, Miller Center, Rev.com
