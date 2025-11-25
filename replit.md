@@ -2,7 +2,7 @@
 
 ## Overview
 
-A comprehensive quote research and verification system that aggregates quotes from 14 different API sources (traditional quotes, religious texts, pop culture, philosophical wisdom, idioms/proverbs), enriches them with AI-powered research, verifies their accuracy using advanced language models, and exports results to Google Sheets. The application provides real-time processing status, cost tracking, persistent status notifications, query history tracking with filtering, source attribution display, and a data-rich interface for managing quote collections.
+A comprehensive quote research and verification system that aggregates quotes from 19 different API sources (traditional quotes, religious texts, pop culture, philosophical wisdom, idioms/proverbs, literary, motivational, and business quotes), enriches them with AI-powered research, verifies their accuracy using advanced language models, and exports results to Google Sheets. The application provides real-time processing status, cost tracking, persistent status notifications, query history tracking with filtering, source attribution display, "Dump All Sources" functionality for bulk collection, and a data-rich interface for managing quote collections.
 
 ## User Preferences
 
@@ -39,6 +39,7 @@ Preferred communication style: Simple, everyday language.
 **API Design**: RESTful endpoints with the following structure:
 - `GET /api/quotes` - Retrieve all stored quotes
 - `POST /api/search` - Initiate asynchronous multi-source quote search
+- `POST /api/dump-all` - Fetch ALL quotes from ALL active APIs at once (bulk collection)
 - `GET /api/queries/:id` - Poll search query status and results
 
 **Asynchronous Processing Pattern**: 
@@ -115,7 +116,7 @@ Preferred communication style: Simple, everyday language.
   - Uses environment variables: `AI_INTEGRATIONS_GEMINI_API_KEY`, `AI_INTEGRATIONS_GEMINI_BASE_URL`
   - Structured output for reliable data parsing
 
-**Quote Data Sources** (14 integrated adapters):
+**Quote Data Sources** (19 integrated adapters):
 
 **Traditional Quote APIs**:
 - **Quotable API**: Free public API for curated quotes with author/tag filtering
@@ -126,11 +127,22 @@ Preferred communication style: Simple, everyday language.
 
 **Philosophical Wisdom**:
 - **Type.fit Quotes**: Free inspirational quotes API with caching
-- **ZenQuotes**: Daily inspiration quotes (rate-limited: 5 requests/30 seconds)
+- **ZenQuotes**: Daily inspiration quotes (supports premium tier with ZENQUOTES_API_KEY for unlimited requests)
 - **Affirmations.dev**: Positive affirmations and motivational quotes
 - **Philosophy.rest**: Philosopher quotes organized by philosophical school
 - **Philosophy API**: Philosophy quotes with book references (philosophyapi.pythonanywhere.com)
 - **Philosophers API**: Scholarly verified philosophical quotes (philosophersapi.com)
+
+**Motivational & Wisdom**:
+- **Advice Slip**: Actionable life advice and wisdom quotes
+- **Motivational Spark**: Motivational quotes with 100% uptime
+
+**Literary Quotes**:
+- **Recite API**: Book quotes from 45+ classic novels
+- **PoetryDB**: Classic poetry from 130 authors, 3,000 poems
+
+**Business & Leadership**:
+- **Indian Quotes**: Indian entrepreneur quotes with rich metadata
 
 **Idioms & Proverbs**:
 - **STANDS4 Phrases**: Idiom and proverb definitions with XML parsing (optional API key)
