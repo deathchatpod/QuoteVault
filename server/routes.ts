@@ -11,6 +11,10 @@ import { fetchBhagavadGita, fetchDhammapada, fetchHadith, fetchBuddhistSutras } 
 import { extractQuotesWithAI, enrichQuoteData } from "./services/gemini-research";
 import { verifyQuote, batchVerifyQuotes } from "./services/anthropic-verify";
 import { exportQuotesToGoogleSheets } from "./services/google-sheets";
+import { scrapeAllQuoteSites } from "./services/quote-site-scrapers";
+import { comprehensiveWebSearch } from "./services/search-engines";
+import { scrapeMultipleUrls, aggregateScrapedQuotes, getRawTextForAI } from "./services/generic-web-scraper";
+import { generateSearchEngineQueries } from "./services/query-generator";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/quotes - Get all quotes
@@ -415,21 +419,75 @@ async function processSearch(
       ...sefariaQuotes,
     ];
 
-    // Stage 2: Web Scraping
+    // Stage 2: Web Scraping (Expanded)
     await storage.updateSearchQuery(queryId, { status: "web_scraping" });
+    console.log(`[Search] Stage 2: Starting expanded web scraping for "${query}"`);
 
-    const scrapingResults = await Promise.all([
-      scrapeWikiquote(query, searchType, Math.floor(maxQuotes * 0.15)),
-      scrapeProjectGutenberg(query, Math.floor(maxQuotes * 0.05)),
-      scrapeWikipedia(query, searchType, Math.floor(maxQuotes * 0.15)),
+    // Run original scrapers
+    const originalScrapingPromise = Promise.all([
+      scrapeWikiquote(query, searchType, Math.floor(maxQuotes * 0.1)),
+      scrapeProjectGutenberg(query, Math.floor(maxQuotes * 0.03)),
+      scrapeWikipedia(query, searchType, Math.floor(maxQuotes * 0.1)),
       scrapeWikidata(query, searchType),
-      fetchBhagavadGita(query, Math.floor(maxQuotes * 0.05)),
-      fetchDhammapada(query, Math.floor(maxQuotes * 0.05)),
-      fetchHadith(query, Math.floor(maxQuotes * 0.05)),
-      fetchBuddhistSutras(query, Math.floor(maxQuotes * 0.05)),
+      fetchBhagavadGita(query, Math.floor(maxQuotes * 0.03)),
+      fetchDhammapada(query, Math.floor(maxQuotes * 0.03)),
+      fetchHadith(query, Math.floor(maxQuotes * 0.03)),
+      fetchBuddhistSutras(query, Math.floor(maxQuotes * 0.03)),
     ]);
 
-    const scrapedQuotes = scrapingResults.flat();
+    // Run new quote site scrapers (BrainyQuote, Goodreads, AZQuotes, etc.)
+    const quoteSitesPromise = scrapeAllQuoteSites(query, searchType, Math.floor(maxQuotes * 0.15));
+
+    // Run search engine integration (Google + Bing)
+    const searchEnginePromise = comprehensiveWebSearch(query, searchType, 20);
+
+    // Wait for all scraping to complete
+    const [originalResults, quoteSiteResults, searchEngineResults] = await Promise.all([
+      originalScrapingPromise,
+      quoteSitesPromise,
+      searchEnginePromise,
+    ]);
+
+    console.log(`[Search] Original scrapers found ${originalResults.flat().length} quotes`);
+    console.log(`[Search] Quote sites found ${quoteSiteResults.length} quotes`);
+    console.log(`[Search] Search engines found ${searchEngineResults.length} URLs to scrape`);
+
+    // Scrape URLs from search engine results
+    let genericScrapedQuotes: Array<{ quote: string; speaker: string | null; author: string | null; work: string | null; type: string; reference: string | null; sources: string[] }> = [];
+    let scrapedRawText = "";
+    
+    if (searchEngineResults.length > 0) {
+      const scrapedPages = await scrapeMultipleUrls(searchEngineResults, 15, 3);
+      genericScrapedQuotes = aggregateScrapedQuotes(scrapedPages, searchType);
+      // Get raw text for AI processing of pages that had content but few structured quotes
+      scrapedRawText = getRawTextForAI(scrapedPages, 30000);
+      console.log(`[Search] Generic scraper extracted ${genericScrapedQuotes.length} quotes and ${scrapedRawText.length} chars of raw text`);
+    }
+
+    // Combine all scraped quotes
+    const scrapedQuotes = [
+      ...originalResults.flat(),
+      ...quoteSiteResults.map(q => ({
+        quote: q.quote,
+        speaker: q.speaker,
+        author: q.author,
+        work: q.work,
+        type: searchType === "author" ? "attributed" : "general",
+        reference: null,
+        sources: q.sources,
+      })),
+      ...genericScrapedQuotes.map(q => ({
+        quote: q.quote,
+        speaker: q.speaker,
+        author: q.author,
+        work: q.work,
+        type: q.type,
+        reference: q.reference,
+        sources: q.sources,
+      })),
+    ];
+    
+    console.log(`[Search] Total scraped quotes: ${scrapedQuotes.length}`);
 
     // All known adapter sources that should skip AI extraction
     const structuredSources = [
@@ -440,13 +498,16 @@ async function processSearch(
       // New adapters
       'advice-slip', 'motivational-spark', 'indian-quotes', 'recite', 'poetrydb',
       // Core APIs
-      'quotable', 'favqs', 'sefaria'
+      'quotable', 'favqs', 'sefaria',
+      // Quote site scrapers (structured data)
+      'brainyquote', 'goodreads-quotes', 'azquotes', 'quotegarden', 'quotationspage',
     ];
     
     // Separate structured pop culture quotes from raw quotes needing AI processing
-    const structuredQuotes = apiQuotes.filter(q => 
-      q.sources?.some((s: string) => structuredSources.includes(s))
-    );
+    const structuredQuotes = apiQuotes.filter(q => {
+      const sources = q.sources as string[] | undefined;
+      return sources?.some(s => structuredSources.includes(s));
+    });
     
     const rawQuotes = [
       ...apiQuotes.filter(q => !structuredQuotes.includes(q)),
@@ -475,10 +536,18 @@ async function processSearch(
     }
 
     // Use AI to extract and enhance raw quote data
-    if (rawQuotes.length > 0) {
-      const combinedText = rawQuotes
+    if (rawQuotes.length > 0 || scrapedRawText.length > 0) {
+      // Combine structured raw quotes with scraped raw text
+      const structuredRawText = rawQuotes
         .map((q) => `"${q.quote}" - ${q.speaker || q.author || "Unknown"}`)
         .join("\n");
+      
+      // Include raw text from web scraping for AI to find additional quotes
+      const combinedText = scrapedRawText.length > 0
+        ? `${structuredRawText}\n\n--- Additional Web Sources ---\n${scrapedRawText}`
+        : structuredRawText;
+      
+      console.log(`[Search] Processing ${combinedText.length} chars of text with AI extraction`);
 
       const { quotes: aiQuotes, cost: aiCost } = await extractQuotesWithAI(
         combinedText,

@@ -40,6 +40,16 @@ const configSchema = z.object({
     genius: z.object({
       apiKey: z.string().optional(),
     }),
+    zenquotes: z.object({
+      apiKey: z.string().optional(),
+    }),
+    googleSearch: z.object({
+      apiKey: z.string().optional(),
+      engineId: z.string().optional(),
+    }),
+    bingSearch: z.object({
+      apiKey: z.string().optional(),
+    }),
   }),
 });
 
@@ -85,6 +95,16 @@ function loadConfig(): Config {
       },
       genius: {
         apiKey: process.env.GENIUS_API_KEY,
+      },
+      zenquotes: {
+        apiKey: process.env.ZENQUOTES_API_KEY,
+      },
+      googleSearch: {
+        apiKey: process.env.GOOGLE_CUSTOM_SEARCH_API_KEY,
+        engineId: process.env.GOOGLE_CUSTOM_SEARCH_ENGINE_ID,
+      },
+      bingSearch: {
+        apiKey: process.env.BING_SEARCH_API_KEY,
       },
     },
   };
