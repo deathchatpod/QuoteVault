@@ -71,6 +71,9 @@ export async function exportQuotesToGoogleSheets(quotes: Quote[]): Promise<strin
     });
 
     const spreadsheetId = createResponse.data.spreadsheetId!;
+    
+    // Get the actual sheet ID from the creation response (not always 0!)
+    const sheetId = createResponse.data.sheets?.[0]?.properties?.sheetId ?? 0;
 
     // Prepare data for sheets
     const headers = ["Quote", "Speaker", "Author", "Work", "Year", "Reference", "Type", "Verified", "Source Confidence", "Sources"];
@@ -107,7 +110,7 @@ export async function exportQuotesToGoogleSheets(quotes: Quote[]): Promise<strin
           {
             repeatCell: {
               range: {
-                sheetId: 0,
+                sheetId: sheetId,
                 startRowIndex: 0,
                 endRowIndex: 1,
               },
