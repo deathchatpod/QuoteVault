@@ -77,7 +77,9 @@ export class ZenQuotesAdapter implements IQuoteSourceAdapter {
     if (!this.apiKey) return [];
     
     try {
-      const url = `${this.baseUrl}/quotes/author/${encodeURIComponent(author)}?key=${this.apiKey}`;
+      // ZenQuotes expects hash appended to URL path, not as query parameter
+      const url = `${this.baseUrl}/quotes/author/${encodeURIComponent(author)}/${this.apiKey}`;
+      
       const response = await pRetry(
         async () => {
           const res = await fetch(url);
@@ -99,7 +101,9 @@ export class ZenQuotesAdapter implements IQuoteSourceAdapter {
     if (!this.apiKey) return [];
     
     try {
-      const url = `${this.baseUrl}/quotes/keyword/${encodeURIComponent(keyword)}?key=${this.apiKey}`;
+      // ZenQuotes expects hash appended to URL path, not as query parameter
+      const url = `${this.baseUrl}/quotes/keyword/${encodeURIComponent(keyword)}/${this.apiKey}`;
+      
       const response = await pRetry(
         async () => {
           const res = await fetch(url);
@@ -146,10 +150,10 @@ export class ZenQuotesAdapter implements IQuoteSourceAdapter {
     }
 
     try {
-      // Build URL with optional API key
+      // Build URL with optional API key appended to path (not query param)
       let url = `${this.baseUrl}/quotes`;
       if (this.apiKey) {
-        url += `?key=${this.apiKey}`;
+        url += `/${this.apiKey}`;
       }
 
       const response = await pRetry(
