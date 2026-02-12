@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(nix-shell:*)",
+      "Bash(chmod:*)",
+      "Bash(npm run test:e2e:*)"
+    ]
+  }
+}
