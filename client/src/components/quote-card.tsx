@@ -1,6 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Quote } from "@shared/schema";
 import { Edit } from "lucide-react";
 
@@ -9,20 +10,57 @@ interface QuoteCardProps {
   onEdit?: (quote: Quote) => void;
 }
 
+function VerificationBadge({ quote }: { quote: Quote }) {
+  const status = (quote as any).verificationStatus || (quote.verified ? "ai_only" : "unverified");
+
+  const config: Record<string, { label: string; className: string; icon: string }> = {
+    cross_verified: {
+      label: "Cross-Verified",
+      className: "bg-green-100 text-green-800 border-green-300",
+      icon: "verified",
+    },
+    ai_only: {
+      label: "AI Verified",
+      className: "bg-blue-100 text-blue-800 border-blue-300",
+      icon: "psychology",
+    },
+    single_source: {
+      label: "Single Source",
+      className: "bg-yellow-100 text-yellow-800 border-yellow-300",
+      icon: "info",
+    },
+    unverified: {
+      label: "Unverified",
+      className: "bg-gray-100 text-gray-600 border-gray-300",
+      icon: "help_outline",
+    },
+  };
+
+  const c = config[status] || config.unverified;
+  const verificationSources = (quote as any).verificationSources as any[] | undefined;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge className={`px-2 py-0.5 text-xs font-semibold rounded-full border ${c.className}`}>
+          <span className="material-icons text-xs mr-1" aria-hidden="true">{c.icon}</span>
+          {c.label}
+        </Badge>
+      </TooltipTrigger>
+      {verificationSources && verificationSources.length > 0 && (
+        <TooltipContent>
+          <p className="text-xs font-medium mb-1">Verified by:</p>
+          {verificationSources.map((vs: any, i: number) => (
+            <p key={i} className="text-xs">{vs.source || vs}</p>
+          ))}
+        </TooltipContent>
+      )}
+    </Tooltip>
+  );
+}
+
 export function QuoteCard({ quote, onEdit }: QuoteCardProps) {
   const confidenceScore = quote.confidenceScore !== null ? Math.round((quote.confidenceScore ?? 0) * 100) : null;
-  const getConfidenceBadgeVariant = (confidence: string | null) => {
-    switch (confidence) {
-      case "high":
-        return "default";
-      case "medium":
-        return "secondary";
-      case "low":
-        return "outline";
-      default:
-        return "secondary";
-    }
-  };
 
   const getTypeBadgeColor = (type: string | null) => {
     switch (type) {
@@ -34,10 +72,10 @@ export function QuoteCard({ quote, onEdit }: QuoteCardProps) {
         return "bg-pink-100 text-pink-800 border-pink-200";
       case "speech":
         return "bg-green-100 text-green-800 border-green-200";
-      case "poem":
+      case "tv":
+        return "bg-orange-100 text-orange-800 border-orange-200";
+      case "music":
         return "bg-indigo-100 text-indigo-800 border-indigo-200";
-      case "historical":
-        return "bg-amber-100 text-amber-800 border-amber-200";
       default:
         return "bg-gray-100 text-gray-800 border-gray-200";
     }
@@ -60,29 +98,11 @@ export function QuoteCard({ quote, onEdit }: QuoteCardProps) {
             <Edit className="w-4 h-4" />
           </Button>
         )}
-        {quote.verified ? (
-          <span
-            className="material-icons text-green-600"
-            style={{ fontSize: '24px' }}
-            title="Verified"
-            aria-label="Verified quote"
-          >
-            check_circle
-          </span>
-        ) : (
-          <span
-            className="material-icons text-amber-600"
-            style={{ fontSize: '24px' }}
-            title="Unverified"
-            aria-label="Unverified quote"
-          >
-            warning
-          </span>
-        )}
+        <VerificationBadge quote={quote} />
       </div>
 
       <CardContent className="p-6 space-y-4">
-        <div className="pr-8">
+        <div className="pr-20">
           <p className="text-lg leading-relaxed text-foreground">
             "{quote.quote}"
           </p>
@@ -129,7 +149,7 @@ export function QuoteCard({ quote, onEdit }: QuoteCardProps) {
 
         <div className="flex flex-wrap items-center gap-2 pt-2">
           {confidenceScore !== null && (
-            <Badge variant={getConfidenceBadgeVariant(quote.sourceConfidence)} className="px-3 py-1 text-xs font-semibold rounded-full">
+            <Badge variant="outline" className="px-3 py-1 text-xs font-semibold rounded-full">
               <span className="material-icons text-xs mr-1" aria-hidden="true">speed</span>
               {confidenceScore}% confidence
             </Badge>

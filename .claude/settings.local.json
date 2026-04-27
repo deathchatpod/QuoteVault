@@ -3,7 +3,24 @@
     "allow": [
       "Bash(nix-shell:*)",
       "Bash(chmod:*)",
-      "Bash(npm run test:e2e:*)"
+      "Bash(npm run test:e2e:*)",
+      "Bash(find:*)",
+      "Bash(npx drizzle-kit push:*)",
+      "Bash(psql:*)",
+      "Bash(npm install:*)",
+      "Bash(npm test:*)",
+      "Bash(npx tsc:*)",
+      "Bash(timeout 15 npm run dev:*)",
+      "Bash(pkill:*)",
+      "Bash(npx vitest run:*)",
+      "Bash(lsof:*)",
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(node -e:*)",
+      "Bash(npx playwright test:*)",
+      "Bash(npx playwright install:*)",
+      "Bash(ls:*)",
+      "Bash(xargs:*)"
     ]
   }
 }

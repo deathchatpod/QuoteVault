@@ -104,11 +104,11 @@ Return JSON only.`;
           corrections: {},
         };
 
-    // Estimate cost: Claude Haiku is ~$0.00025 per 1000 input tokens, ~$0.00125 per 1000 output tokens
-    // Rough estimate: 1 token ≈ 4 characters
-    const inputTokens = prompt.length / 4;
-    const outputTokens = response.text.length / 4;
-    const cost = (inputTokens / 1000) * 0.00025 + (outputTokens / 1000) * 0.00125;
+    // Use actual token counts from API response
+    // Claude Haiku 4.5 pricing: $0.80/MTok input, $4.00/MTok output
+    const inputTokens = response.usage.input_tokens;
+    const outputTokens = response.usage.output_tokens;
+    const cost = (inputTokens / 1_000_000) * 0.80 + (outputTokens / 1_000_000) * 4.00;
 
     return { result, cost };
   } catch (error) {
@@ -134,7 +134,6 @@ export async function batchVerifyQuotes(
   }>
 ): Promise<{ results: VerificationResult[]; totalCost: number }> {
   const limit = pLimit(2);
-  let totalCost = 0;
 
   const verificationPromises = quotes.map((q) =>
     limit(async () => {
@@ -145,11 +144,12 @@ export async function batchVerifyQuotes(
         q.work,
         q.year
       );
-      totalCost += cost;
-      return result;
+      return { result, cost };
     })
   );
 
-  const results = await Promise.all(verificationPromises);
+  const outcomes = await Promise.all(verificationPromises);
+  const results = outcomes.map(o => o.result);
+  const totalCost = outcomes.reduce((sum, o) => sum + o.cost, 0);
   return { results, totalCost };
 }

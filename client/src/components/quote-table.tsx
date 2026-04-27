@@ -7,11 +7,56 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Quote } from "@shared/schema";
 import { useState } from "react";
 
 interface QuoteTableProps {
   quotes: Quote[];
+}
+
+function VerificationStatusBadge({ quote }: { quote: Quote }) {
+  const status = (quote as any).verificationStatus || (quote.verified ? "ai_only" : "unverified");
+
+  const config: Record<string, { label: string; className: string }> = {
+    cross_verified: {
+      label: "Cross-Verified",
+      className: "bg-green-100 text-green-800 border-green-300",
+    },
+    ai_only: {
+      label: "AI Verified",
+      className: "bg-blue-100 text-blue-800 border-blue-300",
+    },
+    single_source: {
+      label: "Single Source",
+      className: "bg-yellow-100 text-yellow-800 border-yellow-300",
+    },
+    unverified: {
+      label: "Unverified",
+      className: "bg-gray-100 text-gray-600 border-gray-300",
+    },
+  };
+
+  const c = config[status] || config.unverified;
+  const verificationSources = (quote as any).verificationSources as any[] | undefined;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge className={`text-xs px-2 py-0.5 border ${c.className}`}>
+          {c.label}
+        </Badge>
+      </TooltipTrigger>
+      {verificationSources && verificationSources.length > 0 && (
+        <TooltipContent>
+          <p className="text-xs font-medium mb-1">Sources:</p>
+          {verificationSources.map((vs: any, i: number) => (
+            <p key={i} className="text-xs">{vs.source || vs}</p>
+          ))}
+        </TooltipContent>
+      )}
+    </Tooltip>
+  );
 }
 
 export function QuoteTable({ quotes }: QuoteTableProps) {
@@ -37,15 +82,14 @@ export function QuoteTable({ quotes }: QuoteTableProps) {
             <TableHead className="font-medium">Work</TableHead>
             <TableHead className="font-medium">Year</TableHead>
             <TableHead className="font-medium">Sources</TableHead>
-            <TableHead className="font-medium text-center">Religious</TableHead>
-            <TableHead className="font-medium">Religion</TableHead>
-            <TableHead className="font-medium text-center">Verified</TableHead>
-            <TableHead className="font-medium text-center">Actions</TableHead>
+            <TableHead className="font-medium text-center">Status</TableHead>
+            <TableHead className="font-medium text-center">Confidence</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {quotes.map((quote) => {
             const isExpanded = expandedRow === quote.id;
+            const confidenceScore = quote.confidenceScore !== null ? Math.round((quote.confidenceScore ?? 0) * 100) : null;
             return (
               <TableRow
                 key={quote.id}
@@ -69,16 +113,16 @@ export function QuoteTable({ quotes }: QuoteTableProps) {
                   </div>
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
-                  {quote.speaker || "—"}
+                  {quote.speaker || "\u2014"}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
-                  {quote.author || "—"}
+                  {quote.author || "\u2014"}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
-                  {quote.work || "—"}
+                  {quote.work || "\u2014"}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
-                  {quote.year || "—"}
+                  {quote.year || "\u2014"}
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
                   {quote.sources && quote.sources.length > 0 ? (
@@ -95,44 +139,18 @@ export function QuoteTable({ quotes }: QuoteTableProps) {
                       )}
                     </div>
                   ) : (
-                    "—"
-                  )}
-                </TableCell>
-                <TableCell className="text-center" data-testid={`cell-religious-${quote.id}`}>
-                  {quote.isReligious ? (
-                    <Badge variant="default" className="text-xs">Y</Badge>
-                  ) : (
-                    <span className="text-muted-foreground text-xs">N</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground" data-testid={`cell-religion-${quote.id}`}>
-                  {quote.religion || "—"}
-                </TableCell>
-                <TableCell className="text-center">
-                  {quote.verified ? (
-                    <span
-                      className="material-icons text-green-600"
-                      style={{ fontSize: '20px' }}
-                      title="Verified"
-                    >
-                      check_circle
-                    </span>
-                  ) : (
-                    <span
-                      className="material-icons text-amber-600"
-                      style={{ fontSize: '20px' }}
-                      title="Unverified"
-                    >
-                      warning
-                    </span>
+                    "\u2014"
                   )}
                 </TableCell>
                 <TableCell className="text-center">
-                  <div className="flex items-center justify-center gap-2">
+                  <VerificationStatusBadge quote={quote} />
+                </TableCell>
+                <TableCell className="text-center">
+                  {confidenceScore !== null && (
                     <Badge variant="outline" className="text-xs px-2 py-1 rounded-full">
-                      {quote.sourceConfidence || "medium"}
+                      {confidenceScore}%
                     </Badge>
-                  </div>
+                  )}
                 </TableCell>
               </TableRow>
             );

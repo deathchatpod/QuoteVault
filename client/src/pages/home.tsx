@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,15 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  PaginationEllipsis,
+} from "@/components/ui/pagination";
 import { useToast } from "@/hooks/use-toast";
 import { Quote, SearchQuery } from "@shared/schema";
 import { QuoteCard } from "@/components/quote-card";
@@ -21,7 +30,14 @@ import { QuoteEditDialog } from "@/components/quote-edit-dialog";
 import { CSVUploadDialog } from "@/components/csv-upload-dialog";
 import { ExportFiltersDialog } from "@/components/export-filters-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Upload, FileSpreadsheet, ChevronDown } from "lucide-react";
+import { Upload, FileSpreadsheet, ChevronDown, Search } from "lucide-react";
+
+interface PaginatedQuotesResponse {
+  quotes: Quote[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
 
 export default function Home() {
   const [query, setQuery] = useState("");
@@ -38,8 +54,40 @@ export default function Home() {
   const resultsRef = useRef<HTMLDivElement>(null);
   const processingRef = useRef<HTMLDivElement>(null);
 
-  const { data: quotes, isLoading: quotesLoading } = useQuery<Quote[]>({
-    queryKey: ["/api/quotes"],
+  // Pagination & filter state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(50);
+  const [ftsSearch, setFtsSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [filterVerificationStatus, setFilterVerificationStatus] = useState<string>("");
+  const [filterType, setFilterType] = useState<string>("");
+  const [filterMinConfidence, setFilterMinConfidence] = useState<number>(0);
+
+  // Debounce FTS search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(ftsSearch);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [ftsSearch]);
+
+  // Build query params for paginated API
+  const buildQueryParams = useCallback(() => {
+    const params = new URLSearchParams();
+    params.set("page", String(currentPage));
+    params.set("pageSize", String(pageSize));
+    if (debouncedSearch) params.set("search", debouncedSearch);
+    if (filterVerificationStatus) params.set("verificationStatus", filterVerificationStatus);
+    if (filterType) params.set("type", filterType);
+    if (filterMinConfidence > 0) params.set("minConfidence", String(filterMinConfidence));
+    params.set("sortBy", "createdAt");
+    params.set("sortOrder", "desc");
+    return params.toString();
+  }, [currentPage, pageSize, debouncedSearch, filterVerificationStatus, filterType, filterMinConfidence]);
+
+  const { data: quotesResponse, isLoading: quotesLoading } = useQuery<PaginatedQuotesResponse>({
+    queryKey: [`/api/quotes?${buildQueryParams()}`],
   });
 
   const { data: allQueries } = useQuery<SearchQuery[]>({
@@ -83,15 +131,15 @@ export default function Home() {
   });
 
   const verifyMutation = useMutation({
-    mutationFn: async () => {
-      const result = await apiRequest("POST", "/api/quotes/verify", {});
-      return result as unknown as { verified: number; total: number; totalCost: number };
+    mutationFn: async (mode: string = "cross_source") => {
+      const result = await apiRequest("POST", "/api/quotes/verify", { mode });
+      return result as unknown as { verified: number; total: number; totalCost: number; mode: string };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
       toast({
         title: "Verification complete",
-        description: `Verified ${data.verified} of ${data.total} quotes (Cost: $${data.totalCost.toFixed(4)})`,
+        description: `Verified ${data.verified} of ${data.total} quotes (Mode: ${data.mode}, Cost: $${data.totalCost.toFixed(4)})`,
       });
     },
     onError: (error: any) => {
@@ -146,11 +194,15 @@ export default function Home() {
   });
 
   const isProcessing = (currentQueryId && !currentQuery) || currentQuery?.status === "processing" || currentQuery?.status === "searching_apis" || currentQuery?.status === "web_scraping" || currentQuery?.status === "verifying";
-  const hasQuotes = quotes && quotes.length > 0;
-  
+
+  const paginatedQuotes = quotesResponse?.quotes || [];
+  const totalQuotes = quotesResponse?.total || 0;
+  const totalPages = Math.ceil(totalQuotes / pageSize);
+  const hasQuotes = totalQuotes > 0;
+
   const filteredQuotes = selectedQueryFilter && queryQuotes
     ? queryQuotes
-    : quotes || [];
+    : paginatedQuotes;
 
   useEffect(() => {
     if (currentQuery?.status === "completed") {
@@ -184,21 +236,20 @@ export default function Home() {
 
       let title = "";
       let description = "";
-      let icon = "";
 
       if (currentQuery.status === "processing" || currentQuery.status === "searching_apis") {
-        title = "🔍 Searching for quotes...";
+        title = "Searching for quotes...";
         description = "Checking multiple quote sources";
       } else if (currentQuery.status === "web_scraping") {
-        title = "🌐 Web scraping in progress...";
+        title = "Web scraping in progress...";
         description = "Gathering quotes from Wikiquote and other sources";
       } else if (currentQuery.status === "verifying") {
-        title = "✓ Verifying quotes...";
-        description = "Using AI to verify accuracy and attribution";
+        title = "Cross-verifying quotes...";
+        description = "Checking quotes across multiple independent sources";
       } else if (currentQuery.status === "completed") {
-        title = "✅ Search completed!";
+        title = "Search completed!";
         description = `Found ${currentQuery.quotesFound || 0} quotes`;
-        
+
         const { id } = toast({
           title,
           description,
@@ -228,6 +279,23 @@ export default function Home() {
     });
   };
 
+  // Generate page numbers to display
+  const getPageNumbers = () => {
+    const pages: (number | "ellipsis")[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (currentPage > 3) pages.push("ellipsis");
+      for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+        pages.push(i);
+      }
+      if (currentPage < totalPages - 2) pages.push("ellipsis");
+      pages.push(totalPages);
+    }
+    return pages;
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b border-border bg-card px-6">
@@ -250,7 +318,7 @@ export default function Home() {
                       Find and verify quotes by topic, author, or work. Search across multiple sources including public APIs and web scraping.
                     </CardDescription>
                   </div>
-                  <ChevronDown 
+                  <ChevronDown
                     className={`h-5 w-5 text-muted-foreground transition-transform ${searchFormOpen ? "" : "-rotate-90"}`}
                     data-testid="icon-toggle-search-form"
                   />
@@ -411,7 +479,12 @@ export default function Home() {
           <div ref={resultsRef}>
             <div className="space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-4">
-                <h2 className="text-2xl font-bold text-foreground">Results</h2>
+                <h2 className="text-2xl font-bold text-foreground">
+                  Results
+                  <span className="ml-2 text-base font-normal text-muted-foreground">
+                    ({totalQuotes} quotes)
+                  </span>
+                </h2>
                 <div className="flex items-center gap-2 flex-wrap">
                   <Button
                     variant="outline"
@@ -444,12 +517,22 @@ export default function Home() {
                   <Button
                     variant="outline"
                     size="sm"
-                    data-testid="button-verify-all"
-                    onClick={() => verifyMutation.mutate()}
+                    data-testid="button-verify-cross"
+                    onClick={() => verifyMutation.mutate("cross_source")}
                     disabled={verifyMutation.isPending}
                   >
                     <span className="material-icons mr-2 text-lg" aria-hidden="true">verified</span>
-                    {verifyMutation.isPending ? "Verifying..." : "Verify All"}
+                    {verifyMutation.isPending ? "Verifying..." : "Cross-Verify"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="button-verify-ai"
+                    onClick={() => verifyMutation.mutate("ai")}
+                    disabled={verifyMutation.isPending}
+                  >
+                    <span className="material-icons mr-2 text-lg" aria-hidden="true">psychology</span>
+                    AI Verify
                   </Button>
                   <Button
                     variant="default"
@@ -463,6 +546,79 @@ export default function Home() {
                   </Button>
                 </div>
               </div>
+
+              {/* Search & Filter Bar */}
+              <Card className="p-4">
+                <div className="flex flex-wrap items-end gap-4">
+                  <div className="flex-1 min-w-[200px]">
+                    <Label htmlFor="fts-search" className="text-xs font-medium text-muted-foreground mb-1 block">
+                      Search Quotes
+                    </Label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="fts-search"
+                        data-testid="input-fts-search"
+                        placeholder="Full-text search across quotes..."
+                        value={ftsSearch}
+                        onChange={(e) => setFtsSearch(e.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
+                  </div>
+                  <div className="w-[160px]">
+                    <Label className="text-xs font-medium text-muted-foreground mb-1 block">
+                      Verification
+                    </Label>
+                    <Select value={filterVerificationStatus} onValueChange={(v) => { setFilterVerificationStatus(v === "all" ? "" : v); setCurrentPage(1); }}>
+                      <SelectTrigger data-testid="select-filter-verification">
+                        <SelectValue placeholder="All statuses" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All statuses</SelectItem>
+                        <SelectItem value="cross_verified">Cross-Verified</SelectItem>
+                        <SelectItem value="ai_only">AI Verified</SelectItem>
+                        <SelectItem value="single_source">Single Source</SelectItem>
+                        <SelectItem value="unverified">Unverified</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="w-[140px]">
+                    <Label className="text-xs font-medium text-muted-foreground mb-1 block">
+                      Quote Type
+                    </Label>
+                    <Select value={filterType} onValueChange={(v) => { setFilterType(v === "all" ? "" : v); setCurrentPage(1); }}>
+                      <SelectTrigger data-testid="select-filter-type">
+                        <SelectValue placeholder="All types" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All types</SelectItem>
+                        <SelectItem value="literature">Literature</SelectItem>
+                        <SelectItem value="religious">Religious</SelectItem>
+                        <SelectItem value="speech">Speech</SelectItem>
+                        <SelectItem value="tv">TV</SelectItem>
+                        <SelectItem value="movie">Movie</SelectItem>
+                        <SelectItem value="music">Music</SelectItem>
+                        <SelectItem value="celebrity">Celebrity</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="w-[160px]">
+                    <Label className="text-xs font-medium text-muted-foreground mb-1 block">
+                      Min Confidence: {filterMinConfidence > 0 ? `${Math.round(filterMinConfidence * 100)}%` : "Any"}
+                    </Label>
+                    <Slider
+                      data-testid="slider-filter-confidence"
+                      value={[filterMinConfidence]}
+                      onValueChange={([v]) => { setFilterMinConfidence(v); setCurrentPage(1); }}
+                      min={0}
+                      max={1}
+                      step={0.05}
+                    />
+                  </div>
+                </div>
+              </Card>
 
               <Tabs defaultValue="table" className="w-full">
                 <TabsList className="grid w-full max-w-2xl grid-cols-3">
@@ -540,7 +696,7 @@ export default function Home() {
                             .filter(q => q.status === "completed")
                             .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
                             .map((query) => (
-                            <tr 
+                            <tr
                               key={query.id}
                               onClick={() => {
                                 setSelectedQueryFilter(query.id);
@@ -564,6 +720,41 @@ export default function Home() {
                   )}
                 </TabsContent>
               </Tabs>
+
+              {/* Pagination Controls */}
+              {!selectedQueryFilter && totalPages > 1 && (
+                <Pagination className="mt-6">
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        className={currentPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                    {getPageNumbers().map((pageNum, idx) => (
+                      <PaginationItem key={idx}>
+                        {pageNum === "ellipsis" ? (
+                          <PaginationEllipsis />
+                        ) : (
+                          <PaginationLink
+                            isActive={pageNum === currentPage}
+                            onClick={() => setCurrentPage(pageNum)}
+                            className="cursor-pointer"
+                          >
+                            {pageNum}
+                          </PaginationLink>
+                        )}
+                      </PaginationItem>
+                    ))}
+                    <PaginationItem>
+                      <PaginationNext
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        className={currentPage >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              )}
             </div>
           </div>
         )}

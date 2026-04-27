@@ -1,0 +1,264 @@
+query,searchType,maxQuotes
+death,topic,300
+grief,topic,300
+loss,topic,250
+mourning,topic,200
+bereavement,topic,200
+dying,topic,200
+passing away,topic,200
+afterlife,topic,200
+heaven,topic,250
+soul,topic,250
+eternity,topic,200
+immortality,topic,200
+rest in peace,topic,150
+gone but not forgotten,topic,150
+forever in our hearts,topic,150
+until we meet again,topic,150
+watching over us,topic,100
+guardian angel,topic,150
+angel,topic,200
+paradise,topic,150
+resurrection,topic,200
+spirit,topic,200
+departed,topic,150
+farewell,topic,200
+goodbye,topic,200
+memory,topic,250
+memories,topic,250
+remembrance,topic,200
+legacy,topic,200
+tribute,topic,150
+eulogy,topic,150
+celebration of life,topic,150
+honor the dead,topic,100
+never forgotten,topic,100
+love,topic,300
+unconditional love,topic,200
+family,topic,300
+mother,topic,250
+father,topic,250
+parent,topic,200
+child,topic,200
+son,topic,150
+daughter,topic,150
+brother,topic,150
+sister,topic,150
+husband,topic,150
+wife,topic,150
+grandparent,topic,150
+grandmother,topic,150
+grandfather,topic,150
+friendship,topic,250
+missing someone,topic,200
+longing,topic,200
+heartbreak,topic,200
+sorrow,topic,200
+tears,topic,200
+grief and love,topic,150
+loss of a loved one,topic,200
+loss of a mother,topic,150
+loss of a father,topic,150
+loss of a child,topic,150
+loss of a friend,topic,150
+loss of a spouse,topic,150
+widowhood,topic,100
+orphan,topic,100
+comfort,topic,250
+healing,topic,250
+hope,topic,300
+peace,topic,300
+solace,topic,200
+consolation,topic,150
+sympathy,topic,200
+condolence,topic,150
+compassion,topic,250
+kindness,topic,250
+empathy,topic,200
+strength,topic,250
+courage,topic,250
+perseverance,topic,200
+resilience,topic,200
+acceptance,topic,200
+letting go,topic,200
+moving on,topic,200
+faith,topic,300
+God,topic,300
+prayer,topic,250
+blessing,topic,200
+grace,topic,200
+mercy,topic,200
+salvation,topic,200
+redemption,topic,200
+forgiveness,topic,250
+psalm,topic,150
+scripture,topic,150
+divine,topic,150
+holy,topic,150
+sacred,topic,150
+eternal life,topic,200
+kingdom of heaven,topic,150
+promised land,topic,100
+spiritual,topic,200
+enlightenment,topic,200
+nirvana,topic,150
+karma,topic,150
+reincarnation,topic,150
+gratitude,topic,250
+appreciation,topic,250
+thankful,topic,200
+blessed,topic,200
+counting blessings,topic,150
+life is precious,topic,150
+cherish,topic,150
+treasure,topic,150
+live fully,topic,200
+life well lived,topic,150
+no regrets,topic,150
+seize the day,topic,150
+carpe diem,topic,150
+make every moment count,topic,100
+time,topic,250
+mortality,topic,200
+the meaning of life,topic,200
+purpose,topic,200
+wisdom,topic,300
+old age,topic,200
+aging,topic,200
+suffering,topic,250
+pain,topic,250
+endurance,topic,200
+patience,topic,200
+dignity,topic,200
+respect,topic,200
+honor,topic,200
+duty,topic,150
+sacrifice,topic,200
+selflessness,topic,150
+devotion,topic,200
+loyalty,topic,200
+bond,topic,150
+together,topic,150
+reunion,topic,150
+homecoming,topic,100
+rest,topic,150
+sleep,topic,150
+night,topic,150
+dawn,topic,150
+light,topic,200
+darkness,topic,200
+stars,topic,150
+sunset,topic,100
+seasons,topic,100
+autumn,topic,100
+winter,topic,100
+spring,topic,100
+garden,topic,100
+flower,topic,100
+rose,topic,100
+tree of life,topic,100
+river,topic,100
+ocean,topic,100
+mountain,topic,100
+journey,topic,200
+path,topic,150
+footprints,topic,100
+Emily Dickinson,author,200
+Khalil Gibran,author,200
+Rumi,author,200
+Maya Angelou,author,200
+C.S. Lewis,author,200
+Rabindranath Tagore,author,200
+Alfred Lord Tennyson,author,200
+William Shakespeare,author,300
+Walt Whitman,author,200
+Robert Frost,author,200
+Edgar Allan Poe,author,200
+John Keats,author,150
+Percy Bysshe Shelley,author,150
+William Wordsworth,author,150
+Dylan Thomas,author,150
+W.H. Auden,author,150
+Mary Oliver,author,150
+Langston Hughes,author,150
+William Butler Yeats,author,200
+Pablo Neruda,author,200
+Kahlil Gibran,author,150
+Hafiz,author,150
+Lao Tzu,author,200
+Confucius,author,200
+Buddha,author,200
+Marcus Aurelius,author,200
+Seneca,author,200
+Epictetus,author,150
+Socrates,author,200
+Plato,author,200
+Aristotle,author,200
+Cicero,author,150
+Victor Hugo,author,200
+Leo Tolstoy,author,200
+Fyodor Dostoevsky,author,150
+Charles Dickens,author,200
+Mark Twain,author,250
+Oscar Wilde,author,250
+Mahatma Gandhi,author,200
+Martin Luther King Jr,author,200
+Mother Teresa,author,200
+Dalai Lama,author,200
+Thich Nhat Hanh,author,150
+Desmond Tutu,author,150
+Pope Francis,author,150
+Billy Graham,author,150
+Helen Keller,author,200
+Anne Frank,author,150
+Viktor Frankl,author,150
+Elisabeth Kubler-Ross,author,200
+Ram Dass,author,150
+Eckhart Tolle,author,150
+Mitch Albom,author,150
+Joan Didion,author,100
+Chimamanda Ngozi Adichie,author,100
+Toni Morrison,author,150
+Gabriel Garcia Marquez,author,150
+Kahlil Gibran The Prophet,work,150
+A Grief Observed,work,100
+The Year of Magical Thinking,work,100
+Tuesdays with Morrie,work,150
+When Breath Becomes Air,work,100
+The Prophet,work,150
+Meditations,work,200
+Letters from a Stoic,work,150
+Hamlet,work,200
+Romeo and Juliet,work,150
+Macbeth,work,100
+Leaves of Grass,work,150
+Song of Myself,work,100
+The Bhagavad Gita,work,200
+The Bible,work,250
+The Quran,work,200
+Psalms,work,200
+Ecclesiastes,work,150
+Book of Job,work,150
+Proverbs,work,200
+The Dhammapada,work,150
+Tao Te Ching,work,200
+The Analects,work,150
+The Iliad,work,100
+The Odyssey,work,100
+Divine Comedy,work,150
+Paradise Lost,work,100
+The Rubaiyat,work,100
+In Memoriam,work,100
+Ode to a Nightingale,work,100
+Do Not Go Gentle into That Good Night,work,100
+Funeral Blues,work,100
+The Road Not Taken,work,100
+Because I could not stop for Death,work,100
+Crossing the Bar,work,100
+Remember Me,work,100
+The Five People You Meet in Heaven,work,100
+The Lovely Bones,work,100
+Man's Search for Meaning,work,100
+On Death and Dying,work,150
+The Tibetan Book of the Dead,work,100
+The Egyptian Book of the Dead,work,100

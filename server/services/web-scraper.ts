@@ -96,50 +96,69 @@ export async function scrapeWikipedia(
 ): Promise<Array<{ quote: string; speaker: string | null; author: string | null; work: string | null; sources: string[] }>> {
   try {
     const quotes: Array<{ quote: string; speaker: string | null; author: string | null; work: string | null; sources: string[] }> = [];
-    
+
+    // Search Wikipedia for the query
     const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query + " quote")}&format=json&origin=*`;
     const searchResponse = await axios.get(searchUrl, {
       timeout: 10000,
       headers: { "User-Agent": USER_AGENT },
     });
-    
+
     const searchResults = searchResponse.data.query?.search || [];
     if (searchResults.length === 0) return quotes;
 
     const pageTitle = searchResults[0].title;
-    
-    const extractUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(pageTitle)}&prop=extracts&explaintext=true&format=json&origin=*`;
-    const pageResponse = await axios.get(extractUrl, {
+
+    // Fetch full HTML to extract blockquote elements and "Notable quotes" sections
+    const htmlUrl = `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(pageTitle)}&prop=text&format=json&origin=*`;
+    const pageResponse = await axios.get(htmlUrl, {
       timeout: 10000,
       headers: { "User-Agent": USER_AGENT },
     });
-    
-    const pages = pageResponse.data.query?.pages || {};
-    const pageContent = Object.values(pages)[0] as any;
-    const text = pageContent?.extract || "";
-    
-    const quotePatterns = [
-      /"([^"]{20,300})"/g,
-      /'([^']{20,300})'/g,
-      /[""]([^""]{20,300})["\"]/g,
-    ];
-    
-    for (const pattern of quotePatterns) {
-      let match;
-      while ((match = pattern.exec(text)) !== null && quotes.length < maxResults) {
-        const quoteText = match[1].trim();
-        if (quoteText && !quoteText.includes("\n") && quoteText.split(" ").length > 3) {
-          quotes.push({
-            quote: quoteText,
-            speaker: searchType === "author" ? query : null,
-            author: searchType === "author" ? query : pageTitle,
-            work: null,
-            sources: ["wikipedia"],
-          });
+
+    const html = pageResponse.data.parse?.text?.["*"] || "";
+    const $ = cheerio.load(html);
+
+    // Extract from <blockquote> elements
+    $("blockquote").each((_, el) => {
+      if (quotes.length >= maxResults) return false;
+      const text = $(el).text().trim();
+      if (text.length > 20 && text.length < 500) {
+        quotes.push({
+          quote: text,
+          speaker: searchType === "author" ? query : null,
+          author: searchType === "author" ? query : pageTitle,
+          work: null,
+          sources: ["wikipedia"],
+        });
+      }
+    });
+
+    // Extract from sections titled "Notable quotes" or "Quotations"
+    $("h2, h3").each((_, heading) => {
+      const headingText = $(heading).text().trim().toLowerCase();
+      if (headingText.includes("notable quotes") || headingText.includes("quotations") || headingText.includes("famous quotes")) {
+        let nextEl = $(heading).next();
+        while (nextEl.length && !nextEl.is("h2, h3")) {
+          if (nextEl.is("ul, ol")) {
+            nextEl.find("li").each((_, li) => {
+              if (quotes.length >= maxResults) return false;
+              const text = $(li).text().trim();
+              if (text.length > 20 && text.length < 500) {
+                quotes.push({
+                  quote: text,
+                  speaker: searchType === "author" ? query : null,
+                  author: searchType === "author" ? query : pageTitle,
+                  work: null,
+                  sources: ["wikipedia"],
+                });
+              }
+            });
+          }
+          nextEl = nextEl.next();
         }
       }
-      if (quotes.length >= maxResults) break;
-    }
+    });
 
     return quotes;
   } catch (error) {

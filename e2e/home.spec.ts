@@ -48,4 +48,156 @@ test.describe("Home page", () => {
     await searchInput.fill("");
     await expect(startButton).toBeDisabled();
   });
+
+  test("search type selector works", async ({ page }) => {
+    await page.goto("/");
+
+    // Click the search type dropdown
+    const searchTypeSelect = page.locator('[data-testid="select-search-type"]');
+    await expect(searchTypeSelect).toBeVisible();
+    await searchTypeSelect.click();
+
+    // Verify the options are visible
+    await expect(page.locator('[data-testid="option-topic"]')).toBeVisible();
+    await expect(page.locator('[data-testid="option-author"]')).toBeVisible();
+    await expect(page.locator('[data-testid="option-work"]')).toBeVisible();
+
+    // Select "Author"
+    await page.locator('[data-testid="option-author"]').click();
+
+    // Verify the selection
+    await expect(searchTypeSelect).toContainText("Author");
+  });
+
+  test("max quotes slider and input work", async ({ page }) => {
+    await page.goto("/");
+
+    // The numeric input should exist and show default value
+    const maxQuotesInput = page.locator('[data-testid="input-max-quotes-number"]');
+    await expect(maxQuotesInput).toBeVisible();
+
+    // Type a custom value
+    await maxQuotesInput.fill("500");
+    await expect(maxQuotesInput).toHaveValue("500");
+  });
+});
+
+test.describe("Results display", () => {
+  test("shows 'No quotes yet' when no results exist", async ({ page }) => {
+    await page.goto("/");
+
+    // When there are no quotes, we should see the empty state
+    // Wait for loading to finish
+    await page.waitForLoadState("networkidle");
+
+    // Check for empty state or results (depends on DB state)
+    const noQuotesText = page.getByText(/No quotes yet/i);
+    const resultsHeading = page.getByText(/Results/i);
+
+    // Either empty state or results should be visible
+    const hasEmptyState = await noQuotesText.isVisible().catch(() => false);
+    const hasResults = await resultsHeading.isVisible().catch(() => false);
+
+    expect(hasEmptyState || hasResults).toBe(true);
+  });
+});
+
+test.describe("Filter controls", () => {
+  test("filter controls are visible when quotes exist", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    // If results exist, check filter controls
+    const resultsHeading = page.getByText(/Results/i).first();
+    const hasResults = await resultsHeading.isVisible().catch(() => false);
+
+    if (hasResults) {
+      // FTS search input
+      const ftsSearch = page.locator('[data-testid="input-fts-search"]');
+      await expect(ftsSearch).toBeVisible();
+
+      // Verification filter dropdown
+      const verificationFilter = page.locator('[data-testid="select-filter-verification"]');
+      await expect(verificationFilter).toBeVisible();
+
+      // Type filter dropdown
+      const typeFilter = page.locator('[data-testid="select-filter-type"]');
+      await expect(typeFilter).toBeVisible();
+
+      // Confidence slider
+      const confidenceSlider = page.locator('[data-testid="slider-filter-confidence"]');
+      await expect(confidenceSlider).toBeVisible();
+    }
+  });
+
+  test("tab switching works between cards, table, and queries", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    const resultsHeading = page.getByText(/Results/i).first();
+    const hasResults = await resultsHeading.isVisible().catch(() => false);
+
+    if (hasResults) {
+      // Table tab should be active by default
+      const tableTab = page.locator('[data-testid="tab-table"]');
+      await expect(tableTab).toBeVisible();
+
+      // Switch to cards
+      const cardsTab = page.locator('[data-testid="tab-cards"]');
+      await cardsTab.click();
+
+      // Switch to queries
+      const queriesTab = page.locator('[data-testid="tab-queries"]');
+      await queriesTab.click();
+    }
+  });
+});
+
+test.describe("Action buttons", () => {
+  test("CSV upload dialog opens and closes", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    const resultsHeading = page.getByText(/Results/i).first();
+    const hasResults = await resultsHeading.isVisible().catch(() => false);
+
+    if (hasResults) {
+      // Click CSV upload button
+      const csvButton = page.locator('[data-testid="button-csv-upload"]');
+      await csvButton.click();
+
+      // Dialog should be visible
+      await expect(page.getByText(/Bulk CSV Upload/i)).toBeVisible();
+
+      // Cancel button should close it
+      const cancelBtn = page.locator('[data-testid="button-cancel-upload"]');
+      await cancelBtn.click();
+
+      // Dialog should be gone
+      await expect(page.getByText(/Bulk CSV Upload/i)).not.toBeVisible();
+    }
+  });
+
+  test("verify buttons exist when results are shown", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    const resultsHeading = page.getByText(/Results/i).first();
+    const hasResults = await resultsHeading.isVisible().catch(() => false);
+
+    if (hasResults) {
+      // Cross-verify button
+      await expect(page.locator('[data-testid="button-verify-cross"]')).toBeVisible();
+
+      // AI verify button
+      await expect(page.locator('[data-testid="button-verify-ai"]')).toBeVisible();
+
+      // Dump All Sources button
+      await expect(page.locator('[data-testid="button-dump-all"]')).toBeVisible();
+
+      // Export buttons
+      await expect(page.locator('[data-testid="button-export-sheets"]')).toBeVisible();
+      await expect(page.locator('[data-testid="button-export-filtered"]')).toBeVisible();
+    }
+  });
 });

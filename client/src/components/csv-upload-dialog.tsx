@@ -31,8 +31,8 @@ export function CSVUploadDialog({ open, onOpenChange }: CSVUploadDialogProps) {
   const { data: bulkJob } = useQuery<BulkJob>({
     queryKey: currentJobId ? [`/api/bulk-jobs/${currentJobId}`] : ["/api/bulk-jobs/null"],
     enabled: !!currentJobId,
-    refetchInterval: (data) => {
-      return data?.status === "processing" ? 3000 : false;
+    refetchInterval: (query) => {
+      return query.state.data?.status === "processing" ? 3000 : false;
     },
   });
 
@@ -40,7 +40,7 @@ export function CSVUploadDialog({ open, onOpenChange }: CSVUploadDialogProps) {
     mutationFn: async (data: { csvContent: string; filename: string }) => {
       return await apiRequest("POST", "/api/bulk-upload", data);
     },
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       setCurrentJobId(data.jobId);
       toast({
         title: "CSV uploaded",

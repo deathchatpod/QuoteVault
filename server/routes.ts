@@ -1,12 +1,15 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import pLimit from "p-limit";
+import { z } from "zod";
 import { storage } from "./storage";
-import { searchFormSchema, insertQuoteSchema } from "@shared/schema";
+import { searchFormSchema, insertQuoteSchema, quotes, bulkJobs, quoteQueries, searchQueries } from "@shared/schema";
+import { db } from "./db";
+import { eq, desc } from "drizzle-orm";
 import { searchQuotableAPI } from "./services/quotable-api";
 import { searchFavQsAPI } from "./services/favqs-api";
 import { searchSefariaAPI } from "./services/sefaria-api";
-import { scrapeWikiquote, scrapeProjectGutenberg, scrapeWikipedia, scrapeWikidata } from "./services/web-scraper";
+import { scrapeWikiquote, scrapeWikipedia, scrapeWikidata } from "./services/web-scraper";
 import { fetchBhagavadGita, fetchDhammapada, fetchHadith, fetchBuddhistSutras } from "./services/religious-texts";
 import { extractQuotesWithAI, enrichQuoteData } from "./services/gemini-research";
 import { verifyQuote, batchVerifyQuotes } from "./services/anthropic-verify";
@@ -15,13 +18,71 @@ import { scrapeAllQuoteSites } from "./services/quote-site-scrapers";
 import { comprehensiveWebSearch } from "./services/search-engines";
 import { scrapeMultipleUrls, aggregateScrapedQuotes, getRawTextForAI } from "./services/generic-web-scraper";
 import { generateSearchEngineQueries } from "./services/query-generator";
+import { parseCSV } from "./services/csv-processor";
+import { createRateLimiter } from "./middleware/rate-limiter";
+import { passiveSourceAgreement, batchCrossVerify } from "./services/cross-source-verifier";
+import { bulkScrapeWikiquote } from "./services/wikiquote-bulk-scraper";
+import { bulkScrapeBrainyQuote, bulkScrapeGoodreads } from "./services/bulk-quote-scraper";
+
+// Rate limiters for expensive endpoints
+const searchRateLimiter = createRateLimiter({ maxRequests: 5, windowSeconds: 60 });
+const verifyRateLimiter = createRateLimiter({ maxRequests: 3, windowSeconds: 60 });
+const dumpAllRateLimiter = createRateLimiter({ maxRequests: 1, windowSeconds: 300 });
+const bulkScrapeRateLimiter = createRateLimiter({ maxRequests: 1, windowSeconds: 600 });
+
+// Zod schema for quote updates - strict to reject unknown fields
+const quoteUpdateSchema = z.object({
+  quote: z.string().optional(),
+  speaker: z.string().nullable().optional(),
+  author: z.string().nullable().optional(),
+  work: z.string().nullable().optional(),
+  year: z.string().nullable().optional(),
+  type: z.string().nullable().optional(),
+  verified: z.boolean().optional(),
+  sourceConfidence: z.enum(["high", "medium", "low"]).optional(),
+  reference: z.string().nullable().optional(),
+  sources: z.array(z.string()).optional(),
+  isReligious: z.boolean().optional(),
+  religion: z.string().nullable().optional(),
+  verificationStatus: z.enum(["unverified", "single_source", "cross_verified", "ai_only"]).optional(),
+  verificationSources: z.array(z.any()).optional(),
+}).strict();
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // GET /api/quotes - Get all quotes
+  // GET /api/quotes - Get quotes (paginated, with optional FTS)
   app.get("/api/quotes", async (req, res) => {
     try {
-      const quotes = await storage.getAllQuotes();
-      res.json(quotes);
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = parseInt(req.query.pageSize as string) || 50;
+      const search = req.query.search as string | undefined;
+      const verified = req.query.verified !== undefined ? req.query.verified === "true" : undefined;
+      const type = req.query.type as string | undefined;
+      const verificationStatus = req.query.verificationStatus as string | undefined;
+      const minConfidence = req.query.minConfidence ? parseFloat(req.query.minConfidence as string) : undefined;
+      const sortBy = req.query.sortBy as string | undefined;
+      const sortOrder = (req.query.sortOrder as "asc" | "desc") || "desc";
+
+      const filters = { page, pageSize, search, verified, type, verificationStatus, minConfidence, sortBy, sortOrder };
+
+      // Use FTS when search is provided, fallback to paginated with ILIKE
+      let result;
+      if (search && search.trim().length > 0) {
+        try {
+          result = await storage.searchQuotesFTS(search, filters);
+        } catch {
+          // Fallback if FTS column doesn't exist yet
+          result = await storage.getQuotesPaginated(filters);
+        }
+      } else {
+        result = await storage.getQuotesPaginated(filters);
+      }
+
+      res.json({
+        quotes: result.data,
+        total: result.total,
+        page: result.page,
+        pageSize: result.pageSize,
+      });
     } catch (error: any) {
       console.error("Get quotes error:", error);
       res.status(500).json({ error: "Failed to fetch quotes" });
@@ -29,7 +90,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/search - Initiate multi-source quote search
-  app.post("/api/search", async (req, res) => {
+  app.post("/api/search", searchRateLimiter, async (req, res) => {
     try {
       const validatedData = searchFormSchema.parse(req.body);
       const { query, searchType, maxQuotes } = validatedData;
@@ -93,46 +154,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // POST /api/quotes/verify - Verify all unverified quotes
-  app.post("/api/quotes/verify", async (req, res) => {
+  // POST /api/quotes/verify - Verify quotes
+  // mode: "cross_source" (default) — run Tier 2 active lookup on unverified/single-source
+  // mode: "ai" — run Claude AI verification, mark as ai_only
+  app.post("/api/quotes/verify", verifyRateLimiter, async (req, res) => {
     try {
+      const mode = req.body?.mode || "cross_source";
       const allQuotes = await storage.getAllQuotes();
-      const unverifiedQuotes = allQuotes.filter((q) => !q.verified);
+      const unverifiedQuotes = allQuotes.filter(
+        (q) => !q.verified || q.verificationStatus === "unverified" || q.verificationStatus === "single_source"
+      );
 
       if (unverifiedQuotes.length === 0) {
         return res.json({ message: "No quotes to verify", totalCost: 0 });
       }
 
-      const { results, totalCost } = await batchVerifyQuotes(
-        unverifiedQuotes.map((q) => ({
-          quote: q.quote,
-          speaker: q.speaker,
-          author: q.author,
-          work: q.work,
-          year: q.year,
-        }))
-      );
+      if (mode === "ai") {
+        // Tier 3: AI verification using Claude
+        const { results, totalCost } = await batchVerifyQuotes(
+          unverifiedQuotes.map((q) => ({
+            quote: q.quote,
+            speaker: q.speaker,
+            author: q.author,
+            work: q.work,
+            year: q.year,
+          }))
+        );
 
-      // Update quotes with verification results
-      for (let i = 0; i < unverifiedQuotes.length; i++) {
-        const quote = unverifiedQuotes[i];
-        const result = results[i];
+        for (let i = 0; i < unverifiedQuotes.length; i++) {
+          const quote = unverifiedQuotes[i];
+          const result = results[i];
 
-        await storage.updateQuote(quote.id, {
-          verified: result.verified,
-          sourceConfidence: result.sourceConfidence,
-          speaker: result.corrections.speaker || quote.speaker,
-          author: result.corrections.author || quote.author,
-          work: result.corrections.work || quote.work,
-          year: result.corrections.year || quote.year,
+          await storage.updateQuote(quote.id, {
+            verified: result.verified,
+            sourceConfidence: result.sourceConfidence,
+            speaker: result.corrections.speaker || quote.speaker,
+            author: result.corrections.author || quote.author,
+            work: result.corrections.work || quote.work,
+            year: result.corrections.year || quote.year,
+            verificationStatus: result.verified ? "ai_only" : quote.verificationStatus as any,
+          });
+        }
+
+        res.json({
+          verified: results.filter((r) => r.verified).length,
+          total: unverifiedQuotes.length,
+          totalCost,
+          mode: "ai",
+        });
+      } else {
+        // Tier 2: Cross-source active lookup (default, free)
+        const crossVerifyResults = await batchCrossVerify(
+          unverifiedQuotes.map((q) => ({
+            id: q.id,
+            quote: q.quote,
+            author: q.author,
+            sources: Array.isArray(q.sources) ? (q.sources as string[]) : [],
+          }))
+        );
+
+        let crossVerifiedCount = 0;
+        for (const { id, result } of crossVerifyResults) {
+          if (result.status === "cross_verified") {
+            crossVerifiedCount++;
+            await storage.updateQuote(id, {
+              verified: true,
+              verificationStatus: "cross_verified",
+              verificationSources: result.matchingSources.map(s => ({
+                source: s,
+                matchedAt: new Date().toISOString(),
+              })) as any,
+              sources: result.matchingSources,
+            });
+          }
+        }
+
+        res.json({
+          verified: crossVerifiedCount,
+          total: unverifiedQuotes.length,
+          totalCost: 0,
+          mode: "cross_source",
         });
       }
-
-      res.json({
-        verified: results.filter((r) => r.verified).length,
-        total: unverifiedQuotes.length,
-        totalCost,
-      });
     } catch (error: any) {
       console.error("Verify error:", error);
       res.status(500).json({ error: "Verification failed" });
@@ -163,13 +266,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/quotes/:id", async (req, res) => {
     try {
       const quoteId = req.params.id;
-      const updateData = req.body;
-      
-      const updatedQuote = await storage.updateQuote(quoteId, updateData);
+
+      const parseResult = quoteUpdateSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "Invalid update data",
+          details: parseResult.error.flatten().fieldErrors
+        });
+      }
+
+      const updatedQuote = await storage.updateQuote(quoteId, parseResult.data);
       if (!updatedQuote) {
         return res.status(404).json({ error: "Quote not found" });
       }
-      
+
       res.json(updatedQuote);
     } catch (error: any) {
       console.error("Update quote error:", error);
@@ -189,7 +299,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/dump-all - Fetch ALL quotes from ALL active APIs at once
-  app.post("/api/dump-all", async (req, res) => {
+  app.post("/api/dump-all", dumpAllRateLimiter, async (req, res) => {
     try {
       const { maxPerSource = 50 } = req.body;
       const startTime = Date.now();
@@ -263,18 +373,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "CSV content and filename are required" });
       }
       
-      // Parse CSV (will add the import later)
-      const { parseCSV } = await import("./services/csv-processor");
       const queries = parseCSV(csvContent);
-      
+
       if (queries.length === 0) {
         return res.status(400).json({ error: "No valid queries found in CSV" });
       }
-      
-      // Create bulk job record
-      const { bulkJobs } = await import("@shared/schema");
-      const { db } = await import("./db");
-      
+
       const [bulkJob] = await db.insert(bulkJobs).values({
         filename,
         totalQueries: queries.length,
@@ -295,10 +399,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/bulk-jobs - Get all bulk jobs
   app.get("/api/bulk-jobs", async (req, res) => {
     try {
-      const { bulkJobs } = await import("@shared/schema");
-      const { db } = await import("./db");
-      const { desc } = await import("drizzle-orm");
-      
       const jobs = await db.select().from(bulkJobs).orderBy(desc(bulkJobs.createdAt));
       
       res.json(jobs);
@@ -311,10 +411,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/bulk-jobs/:id - Get bulk job status
   app.get("/api/bulk-jobs/:id", async (req, res) => {
     try {
-      const { bulkJobs } = await import("@shared/schema");
-      const { db } = await import("./db");
-      const { eq } = await import("drizzle-orm");
-      
       const [job] = await db.select().from(bulkJobs).where(eq(bulkJobs.id, req.params.id));
       
       if (!job) {
@@ -328,6 +424,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/bulk-scrape - Launch bulk scraping job (Wikiquote, BrainyQuote, Goodreads)
+  app.post("/api/bulk-scrape", bulkScrapeRateLimiter, async (req, res) => {
+    try {
+      const { sources = ["wikiquote", "brainyquote", "goodreads"] } = req.body;
+
+      const searchQuery = await storage.createSearchQuery({
+        query: `[BULK SCRAPE: ${sources.join(", ")}]`,
+        searchType: "topic",
+        maxQuotes: 10000,
+        status: "processing",
+        quotesFound: 0,
+        quotesVerified: 0,
+        apiCost: 0,
+      });
+
+      // Run in background
+      runBulkScrape(searchQuery.id, sources).catch(console.error);
+
+      res.json({
+        queryId: searchQuery.id,
+        status: "processing",
+        sources,
+        message: "Bulk scraping started. This may take 10-30 minutes depending on sources.",
+      });
+    } catch (error: any) {
+      console.error("Bulk scrape error:", error);
+      res.status(500).json({ error: error.message || "Failed to start bulk scrape" });
+    }
+  });
+
+  // GET /api/bulk-scrape/status/:id - Get bulk scrape progress
+  app.get("/api/bulk-scrape/status/:id", async (req, res) => {
+    try {
+      const query = await storage.getSearchQuery(req.params.id);
+      if (!query) {
+        return res.status(404).json({ error: "Scrape job not found" });
+      }
+      res.json(query);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to get scrape status" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
@@ -335,10 +474,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 // Background bulk processing function
 async function processBulkQueries(jobId: string, queries: any[]) {
   try {
-    const { bulkJobs } = await import("@shared/schema");
-    const { db } = await import("./db");
-    const { eq } = await import("drizzle-orm");
-    
     for (let i = 0; i < queries.length; i++) {
       const { query, searchType, maxQuotes } = queries[i];
       
@@ -371,10 +506,6 @@ async function processBulkQueries(jobId: string, queries: any[]) {
       
   } catch (error) {
     console.error("Bulk processing error:", error);
-    const { bulkJobs } = await import("@shared/schema");
-    const { db } = await import("./db");
-    const { eq } = await import("drizzle-orm");
-    
     await db.update(bulkJobs)
       .set({ status: "failed" })
       .where(eq(bulkJobs.id, jobId));
@@ -426,7 +557,7 @@ async function processSearch(
     // Run original scrapers
     const originalScrapingPromise = Promise.all([
       scrapeWikiquote(query, searchType, Math.floor(maxQuotes * 0.1)),
-      scrapeProjectGutenberg(query, Math.floor(maxQuotes * 0.03)),
+      // scrapeProjectGutenberg removed - creates fake entries like "Available in Project Gutenberg: Title"
       scrapeWikipedia(query, searchType, Math.floor(maxQuotes * 0.1)),
       scrapeWikidata(query, searchType),
       fetchBhagavadGita(query, Math.floor(maxQuotes * 0.03)),
@@ -491,12 +622,14 @@ async function processSearch(
 
     // All known adapter sources that should skip AI extraction
     const structuredSources = [
-      // Original adapters
-      'tv-quotes-api', 'lyrics-ovh', 'genius', 'celebrity-lines', 'api-ninjas-quotes', 'miller-center', 'rev-com',
+      // Working adapters
+      'lyrics-ovh', 'api-ninjas-quotes',
       // Wisdom/philosophy adapters
       'typefit', 'zenquotes', 'affirmations-dev', 'philosophy-rest', 'philosophy-api', 'philosophers-api', 'stands4-phrases',
-      // New adapters
+      // Existing adapters
       'advice-slip', 'motivational-spark', 'indian-quotes', 'recite', 'poetrydb',
+      // New free API adapters
+      'they-said-so', 'forismatic', 'stoic-quotes', 'got-quotes', 'breaking-bad', 'lucifer-quotes',
       // Core APIs
       'quotable', 'favqs', 'sefaria',
       // Quote site scrapers (structured data)
@@ -514,39 +647,17 @@ async function processSearch(
       ...scrapedQuotes
     ];
 
-    // Process structured pop culture quotes directly (skip AI extraction)
-    console.log(`[Search] Processing ${structuredQuotes.length} structured pop culture quotes`);
-    for (const popQuote of structuredQuotes) {
-      if (quotesFound >= maxQuotes) break;
-      
-      const duplicate = await storage.findDuplicateQuote(popQuote.quote);
-      
-      if (!duplicate) {
-        const created = await storage.createQuote(popQuote);
-        await storage.linkQuoteToQuery(created.id, queryId);
-        console.log(`[Search] Created pop culture quote: ${created.id} - "${created.quote.substring(0, 50)}..." (type: ${created.type}, sources: ${created.sources})`);
-        quotesFound++;
-        if (created.verified) {
-          quotesVerified++;
-        }
-      } else {
-        await storage.linkQuoteToQuery(duplicate.id, queryId);
-        console.log(`[Search] Found duplicate pop culture quote: "${popQuote.quote.substring(0, 50)}..."`);
-      }
-    }
-
-    // Use AI to extract and enhance raw quote data
+    // Use AI to extract quotes from raw text (unstructured sources only)
+    let aiExtractedQuotes: any[] = [];
     if (rawQuotes.length > 0 || scrapedRawText.length > 0) {
-      // Combine structured raw quotes with scraped raw text
       const structuredRawText = rawQuotes
         .map((q) => `"${q.quote}" - ${q.speaker || q.author || "Unknown"}`)
         .join("\n");
-      
-      // Include raw text from web scraping for AI to find additional quotes
+
       const combinedText = scrapedRawText.length > 0
         ? `${structuredRawText}\n\n--- Additional Web Sources ---\n${scrapedRawText}`
         : structuredRawText;
-      
+
       console.log(`[Search] Processing ${combinedText.length} chars of text with AI extraction`);
 
       const { quotes: aiQuotes, cost: aiCost } = await extractQuotesWithAI(
@@ -556,87 +667,109 @@ async function processSearch(
         maxQuotes
       );
       totalCost += aiCost;
+      aiExtractedQuotes = aiQuotes.map(q => ({
+        ...q,
+        sources: ["ai-extraction"],
+        type: q.type || "literature",
+        verified: false,
+        sourceConfidence: "medium",
+      }));
+    }
 
-      // Stage 3: Verification and deduplication
-      await storage.updateSearchQuery(queryId, { status: "verifying" });
+    // Stage 3: Cross-source verification
+    await storage.updateSearchQuery(queryId, { status: "verifying" });
 
-      // First pass: Check duplicates and create quotes (sequential to avoid race conditions)
-      const quotesToVerify: Array<{ id: string; quote: string; speaker: string | null; author: string | null; work: string | null; year: string | null }> = [];
+    // Combine ALL quotes into a single pool for cross-source analysis
+    const allCollectedQuotes: Array<{
+      quote: string;
+      speaker: string | null;
+      author: string | null;
+      work: string | null;
+      year: string | null;
+      type: string | null;
+      reference: string | null;
+      sources: string[];
+      isReligious: boolean;
+      religion: string | null;
+    }> = [
+      ...structuredQuotes.map(q => ({
+        quote: q.quote as string,
+        speaker: (q as any).speaker || null,
+        author: (q as any).author || null,
+        work: (q as any).work || null,
+        year: (q as any).year || null,
+        type: (q as any).type || null,
+        reference: (q as any).reference || null,
+        sources: (Array.isArray(q.sources) ? q.sources : []) as string[],
+        isReligious: (q as any).isReligious || false,
+        religion: (q as any).religion || null,
+      })),
+      ...aiExtractedQuotes.map((q: any) => ({
+        quote: q.quote as string,
+        speaker: q.speaker || null,
+        author: q.author || null,
+        work: q.work || null,
+        year: q.year || null,
+        type: q.type || null,
+        reference: q.reference || null,
+        sources: (Array.isArray(q.sources) ? q.sources : []) as string[],
+        isReligious: false,
+        religion: null as string | null,
+      })),
+    ];
 
-      for (const aiQuote of aiQuotes) {
-        if (quotesFound >= maxQuotes) break;
+    console.log(`[Search] Running cross-source verification on ${allCollectedQuotes.length} quotes`);
 
-        // Check for duplicates
-        const duplicate = await storage.findDuplicateQuote(aiQuote.quote);
+    // Cluster quotes by similarity and determine verification status
+    const clusters = passiveSourceAgreement(allCollectedQuotes);
+    console.log(`[Search] Found ${clusters.length} unique quote clusters`);
 
-        if (duplicate) {
-          // Merge with existing quote
-          await storage.mergeQuotes(duplicate, {
-            speaker: aiQuote.speaker,
-            author: aiQuote.author,
-            work: aiQuote.work,
-            year: aiQuote.year,
-            type: aiQuote.type,
-            reference: aiQuote.reference,
-            sources: ["ai-extraction"],
-          });
-          await storage.linkQuoteToQuery(duplicate.id, queryId);
-        } else {
-          // Create new quote
-          const newQuote = await storage.createQuote({
-            quote: aiQuote.quote,
-            speaker: aiQuote.speaker,
-            author: aiQuote.author,
-            work: aiQuote.work,
-            year: aiQuote.year,
-            type: aiQuote.type || "literature",
-            reference: aiQuote.reference,
-            verified: false,
-            sourceConfidence: "medium",
-            sources: ["ai-extraction"],
-          });
+    // Store quotes from clusters
+    for (const cluster of clusters) {
+      if (quotesFound >= maxQuotes) break;
 
-          await storage.linkQuoteToQuery(newQuote.id, queryId);
-          quotesToVerify.push(newQuote);
-          quotesFound++;
-        }
-      }
+      const best = cluster.bestQuote;
+      const mergedSources = cluster.distinctSources;
 
-      // Second pass: Verify quotes concurrently (5 at a time)
-      if (quotesToVerify.length > 0) {
-        const limit = pLimit(5);
-        const verificationPromises = quotesToVerify.map((quote) =>
-          limit(async () => {
-            const { result, cost } = await verifyQuote(
-              quote.quote,
-              quote.speaker,
-              quote.author,
-              quote.work,
-              quote.year
-            );
+      // Check for duplicates in DB
+      const duplicate = await storage.findDuplicateQuote(best.quote);
 
-            await storage.updateQuote(quote.id, {
-              verified: result.verified,
-              sourceConfidence: result.sourceConfidence,
-              speaker: result.corrections.speaker || quote.speaker,
-              author: result.corrections.author || quote.author,
-              work: result.corrections.work || quote.work,
-              year: result.corrections.year || quote.year,
-            });
+      if (duplicate) {
+        // Merge with existing
+        await storage.mergeQuotes(duplicate, {
+          speaker: best.speaker,
+          author: best.author,
+          work: best.work,
+          year: best.year,
+          type: best.type,
+          reference: best.reference,
+          sources: mergedSources,
+          verificationStatus: cluster.verificationStatus,
+          verificationSources: mergedSources.map(s => ({ source: s, matchedAt: new Date().toISOString() })) as any,
+        });
+        await storage.linkQuoteToQuery(duplicate.id, queryId);
+        if (cluster.verificationStatus === "cross_verified") quotesVerified++;
+      } else {
+        const newQuote = await storage.createQuote({
+          quote: best.quote,
+          speaker: best.speaker,
+          author: best.author,
+          work: best.work,
+          year: best.year,
+          type: best.type || "literature",
+          reference: best.reference,
+          verified: cluster.verificationStatus === "cross_verified",
+          sourceConfidence: cluster.verificationStatus === "cross_verified" ? "high" : "medium",
+          sources: mergedSources,
+          isReligious: (best as any).isReligious || false,
+          religion: (best as any).religion || null,
+          verificationStatus: cluster.verificationStatus,
+          verificationSources: mergedSources.map(s => ({ source: s, matchedAt: new Date().toISOString() })) as any,
+        });
 
-            return { verified: result.verified, cost };
-          })
-        );
-
-        const verificationResults = await Promise.all(verificationPromises);
-        
-        // Aggregate results
-        for (const result of verificationResults) {
-          if (result.verified) {
-            quotesVerified++;
-          }
-          totalCost += result.cost;
-        }
+        await storage.linkQuoteToQuery(newQuote.id, queryId);
+        quotesFound++;
+        if (cluster.verificationStatus === "cross_verified") quotesVerified++;
       }
     }
 
@@ -655,6 +788,31 @@ async function processSearch(
     console.error("Processing error:", error);
     await storage.updateSearchQuery(queryId, { status: "failed" });
   }
+}
+
+// Helper to deduplicate, store, and link a batch of quotes
+async function storeQuoteBatch(
+  quotesList: any[],
+  queryId: string,
+  sourceName: string
+): Promise<number> {
+  let stored = 0;
+  for (const quote of quotesList) {
+    try {
+      const duplicate = await storage.findDuplicateQuote(quote.quote);
+      if (!duplicate) {
+        const created = await storage.createQuote(quote);
+        await storage.linkQuoteToQuery(created.id, queryId);
+        stored++;
+        console.log(`[${sourceName}] Created: "${created.quote.substring(0, 40)}..." from ${created.sources}`);
+      } else {
+        await storage.linkQuoteToQuery(duplicate.id, queryId);
+      }
+    } catch (err: any) {
+      console.error(`[${sourceName}] Error processing quote:`, err.message);
+    }
+  }
+  return stored;
 }
 
 // Background function to dump ALL quotes from ALL sources
@@ -677,46 +835,17 @@ async function dumpAllSources(queryId: string, maxPerSource: number) {
     totalCost += popCultureResult.totalCost;
 
     // Process pop culture quotes
-    for (const quote of popCultureResult.quotes) {
-      try {
-        const duplicate = await storage.findDuplicateQuote(quote.quote);
-        
-        if (!duplicate) {
-          const created = await storage.createQuote(quote);
-          await storage.linkQuoteToQuery(created.id, queryId);
-          quotesFound++;
-          console.log(`[DumpAll] Created: "${created.quote.substring(0, 40)}..." from ${created.sources}`);
-        } else {
-          await storage.linkQuoteToQuery(duplicate.id, queryId);
-        }
-      } catch (err: any) {
-        console.error(`[DumpAll] Error processing quote:`, err.message);
-      }
-    }
+    quotesFound += await storeQuoteBatch(popCultureResult.quotes, queryId, "DumpAll-PopCulture");
 
     // Also fetch from traditional APIs
     await storage.updateSearchQuery(queryId, { status: "web_scraping" });
-    
     console.log(`[DumpAll] Fetching from traditional APIs...`);
-    
+
     // Quotable API - get random quotes
     try {
       const quotableQuotes = await searchQuotableAPI("life", "topic", maxPerSource);
-      for (const quote of quotableQuotes) {
-        try {
-          const duplicate = await storage.findDuplicateQuote(quote.quote);
-          if (!duplicate) {
-            const created = await storage.createQuote(quote);
-            await storage.linkQuoteToQuery(created.id, queryId);
-            quotesFound++;
-          } else {
-            await storage.linkQuoteToQuery(duplicate.id, queryId);
-          }
-        } catch (err: any) {
-          console.error(`[DumpAll] Error with Quotable quote:`, err.message);
-        }
-      }
-      console.log(`[DumpAll] Quotable: Added ${quotableQuotes.length} quotes`);
+      quotesFound += await storeQuoteBatch(quotableQuotes, queryId, "DumpAll-Quotable");
+      console.log(`[DumpAll] Quotable: processed ${quotableQuotes.length} quotes`);
     } catch (err: any) {
       console.error(`[DumpAll] Quotable error:`, err.message);
     }
@@ -724,21 +853,8 @@ async function dumpAllSources(queryId: string, maxPerSource: number) {
     // FavQs API
     try {
       const favqsQuotes = await searchFavQsAPI("inspiration", "topic", maxPerSource);
-      for (const quote of favqsQuotes) {
-        try {
-          const duplicate = await storage.findDuplicateQuote(quote.quote);
-          if (!duplicate) {
-            const created = await storage.createQuote(quote);
-            await storage.linkQuoteToQuery(created.id, queryId);
-            quotesFound++;
-          } else {
-            await storage.linkQuoteToQuery(duplicate.id, queryId);
-          }
-        } catch (err: any) {
-          console.error(`[DumpAll] Error with FavQs quote:`, err.message);
-        }
-      }
-      console.log(`[DumpAll] FavQs: Added ${favqsQuotes.length} quotes`);
+      quotesFound += await storeQuoteBatch(favqsQuotes, queryId, "DumpAll-FavQs");
+      console.log(`[DumpAll] FavQs: processed ${favqsQuotes.length} quotes`);
     } catch (err: any) {
       console.error(`[DumpAll] FavQs error:`, err.message);
     }
@@ -746,21 +862,8 @@ async function dumpAllSources(queryId: string, maxPerSource: number) {
     // Sefaria API
     try {
       const sefariaQuotes = await searchSefariaAPI("wisdom", "topic", maxPerSource);
-      for (const quote of sefariaQuotes) {
-        try {
-          const duplicate = await storage.findDuplicateQuote(quote.quote);
-          if (!duplicate) {
-            const created = await storage.createQuote(quote);
-            await storage.linkQuoteToQuery(created.id, queryId);
-            quotesFound++;
-          } else {
-            await storage.linkQuoteToQuery(duplicate.id, queryId);
-          }
-        } catch (err: any) {
-          console.error(`[DumpAll] Error with Sefaria quote:`, err.message);
-        }
-      }
-      console.log(`[DumpAll] Sefaria: Added ${sefariaQuotes.length} quotes`);
+      quotesFound += await storeQuoteBatch(sefariaQuotes, queryId, "DumpAll-Sefaria");
+      console.log(`[DumpAll] Sefaria: processed ${sefariaQuotes.length} quotes`);
     } catch (err: any) {
       console.error(`[DumpAll] Sefaria error:`, err.message);
     }
@@ -780,6 +883,104 @@ async function dumpAllSources(queryId: string, maxPerSource: number) {
     console.log(`[DumpAll] Query ${queryId} completed successfully`);
   } catch (error) {
     console.error("[DumpAll] Error:", error);
+    await storage.updateSearchQuery(queryId, { status: "failed" });
+  }
+}
+
+// Background bulk scrape function
+async function runBulkScrape(queryId: string, sources: string[]) {
+  const startTime = Date.now();
+  let totalQuotesStored = 0;
+
+  try {
+    await storage.updateSearchQuery(queryId, { status: "web_scraping" });
+
+    // Shared callback to store scraped quotes with deduplication
+    const storeScrapedQuotes = async (quotes: Array<{ quote: string; speaker: string | null; author: string | null; work: string | null; sources: string[] }>, label: string) => {
+      for (const q of quotes) {
+        try {
+          const duplicate = await storage.findDuplicateQuote(q.quote);
+          if (!duplicate) {
+            const created = await storage.createQuote({
+              quote: q.quote,
+              speaker: q.speaker,
+              author: q.author,
+              work: q.work,
+              year: null,
+              type: "literature",
+              reference: null,
+              verified: false,
+              sourceConfidence: "medium",
+              sources: q.sources,
+              isReligious: false,
+              religion: null,
+              verificationStatus: "single_source",
+            });
+            await storage.linkQuoteToQuery(created.id, queryId);
+            totalQuotesStored++;
+          } else {
+            // Merge sources
+            const existingSources = Array.isArray(duplicate.sources) ? (duplicate.sources as string[]) : [];
+            const newSources = Array.from(new Set([...existingSources, ...q.sources]));
+            if (newSources.length > existingSources.length) {
+              await storage.mergeQuotes(duplicate, {
+                sources: newSources,
+                speaker: q.speaker || duplicate.speaker,
+                author: q.author || duplicate.author,
+                work: q.work || duplicate.work,
+              });
+            }
+            await storage.linkQuoteToQuery(duplicate.id, queryId);
+          }
+        } catch (err: any) {
+          // Skip individual quote errors
+        }
+      }
+    };
+
+    // Run each source
+    if (sources.includes("wikiquote")) {
+      console.log(`[BulkScrape] Starting Wikiquote bulk scrape...`);
+      const result = await bulkScrapeWikiquote(
+        async (quotes, pageTitle) => storeScrapedQuotes(quotes, `Wikiquote:${pageTitle}`),
+        (progress) => {
+          console.log(`[BulkScrape] Wikiquote: ${progress.completedPages}/${progress.totalPages} pages, ${progress.totalQuotes} quotes found, current: ${progress.currentPage}`);
+        },
+        { maxPagesPerCategory: 30, maxQuotesPerPage: 30, includeCategories: true }
+      );
+      console.log(`[BulkScrape] Wikiquote done: ${result.totalQuotes} quotes from ${result.totalPages} pages`);
+    }
+
+    if (sources.includes("brainyquote")) {
+      console.log(`[BulkScrape] Starting BrainyQuote bulk scrape...`);
+      const result = await bulkScrapeBrainyQuote(
+        async (quotes, topic) => storeScrapedQuotes(quotes, `BrainyQuote:${topic}`),
+        (completed, total, topic) => {
+          console.log(`[BulkScrape] BrainyQuote: ${completed}/${total} topics, current: ${topic}`);
+        },
+        2 // 2 pages per topic
+      );
+      console.log(`[BulkScrape] BrainyQuote done: ${result.totalQuotes} quotes from ${result.topics} topics`);
+    }
+
+    if (sources.includes("goodreads")) {
+      console.log(`[BulkScrape] Starting Goodreads bulk scrape...`);
+      const result = await bulkScrapeGoodreads(
+        async (quotes, tag) => storeScrapedQuotes(quotes, `Goodreads:${tag}`),
+        (completed, total, tag) => {
+          console.log(`[BulkScrape] Goodreads: ${completed}/${total} tags, current: ${tag}`);
+        },
+        2 // 2 pages per tag
+      );
+      console.log(`[BulkScrape] Goodreads done: ${result.totalQuotes} quotes from ${result.tags} tags`);
+    }
+
+    const processingTime = Date.now() - startTime;
+    console.log(`[BulkScrape] All done: ${totalQuotesStored} new quotes stored in ${Math.round(processingTime / 1000)}s`);
+
+    await storage.completeSearchQuery(queryId, totalQuotesStored, 0, 0, processingTime);
+  } catch (error) {
+    console.error("[BulkScrape] Error:", error);
     await storage.updateSearchQuery(queryId, { status: "failed" });
   }
 }

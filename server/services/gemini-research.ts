@@ -105,10 +105,12 @@ ${rawText.slice(0, 50000)}`;
     const data = JSON.parse(response.text || '{"quotes":[]}');
     const quotes = data.quotes || [];
 
-    // Estimate cost: Gemini Flash is ~$0.00001 per 1000 chars for input, ~$0.00003 per 1000 chars for output
-    const inputCost = (prompt.length / 1000) * 0.00001;
-    const outputCost = ((response.text?.length || 0) / 1000) * 0.00003;
-    const totalCost = inputCost + outputCost;
+    // Use actual token counts from API response if available
+    // Gemini 2.5 Flash pricing: $0.15/MTok input, $0.60/MTok output
+    const usageMetadata = (response as any).usageMetadata;
+    const inputTokens = usageMetadata?.promptTokenCount || Math.ceil(prompt.length / 4);
+    const outputTokens = usageMetadata?.candidatesTokenCount || Math.ceil((response.text?.length || 0) / 4);
+    const totalCost = (inputTokens / 1_000_000) * 0.15 + (outputTokens / 1_000_000) * 0.60;
 
     return { quotes, cost: totalCost };
   } catch (error) {
@@ -165,10 +167,12 @@ If any fields are missing or incomplete, try to fill them in with accurate infor
     );
 
     const enrichedData = JSON.parse(response.text || "{}");
-    const inputCost = (prompt.length / 1000) * 0.00001;
-    const outputCost = ((response.text?.length || 0) / 1000) * 0.00003;
+    const usageMeta = (response as any).usageMetadata;
+    const inTokens = usageMeta?.promptTokenCount || Math.ceil(prompt.length / 4);
+    const outTokens = usageMeta?.candidatesTokenCount || Math.ceil((response.text?.length || 0) / 4);
+    const cost = (inTokens / 1_000_000) * 0.15 + (outTokens / 1_000_000) * 0.60;
 
-    return { enrichedData, cost: inputCost + outputCost };
+    return { enrichedData, cost };
   } catch (error) {
     console.error("Gemini enrichment error:", error);
     return { enrichedData: existingData, cost: 0 };
